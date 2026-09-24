@@ -946,6 +946,7 @@ function loadLevel(){
     for(const c of cand){ if(G.closures.length>=TUNE.closedN) break;
       const trial=G.closures.concat([c]); if(reachOK(trial)) G.closures.push(c); }   // keep only fare-safe closures
     if(G.closures.length) G.toast={text:"STREETS CLOSED — FIND ANOTHER WAY",t:3.2};
+    clearTrafficFromClosures();      // nothing may START inside a barricade — see the function
   }
   // NORTH HOLLYWOOD — a ROVING film shoot. A seeded sequence of interior road segments; the production
   // sits on ONE at a time (closed = the soft wall), shoots for filmDwell, then WRAPS (filmGap open while
@@ -1277,6 +1278,22 @@ function closedAt(x,y){
       const a=c.bk*CELL+ROADH+TUNE.closePad, b=(c.bk+1)*CELL-ROADH-TUNE.closePad; if(x>=a&&x<=b) return true; } }
   }
   return false;
+}
+// NOTHING MAY START INSIDE A BARRICADE. updateDrive's U-turn only flips a car on ENTRY, so a car that
+// SPAWNS inside a closed band drives OUT through it — and from the driver's seat that is indistinguishable
+// from traffic ghosting a wall the player cannot pass. That is exactly the bug Joseph reported, and the
+// 0716 note knowingly allowed it ("a car spawned inside drives OUT"). Traffic is built before the closures
+// are placed, so this runs after placement and walks any offender clear along its own lane.
+// Deterministic: no rng draws, a fixed step, a hard bound.
+function clearTrafficFromClosures(){
+  if(!(G.closures&&G.closures.length)||!G.traffic) return;
+  for(const c of G.traffic){
+    for(let guard=0; guard<400; guard++){
+      if(!closedAt(c.vert?c.line:c.pos, c.vert?c.pos:c.line)) break;
+      c.pos += c.dir*8;
+      if(c.pos>WMAX+40) c.pos=-40; else if(c.pos<-40) c.pos=WMAX+40;
+    }
+  }
 }
 function onRoad(x,y,ignoreClosed){
   if(x<-ROADH||y<-ROADH||x>WMAX+ROADH||y>WMAX+ROADH) return false;
@@ -2670,7 +2687,7 @@ function drawApartments(p,sx,sy,w,h,L){ const z=cam.z, night=L.night, m=5*z;
   ctx.fillStyle=night?'#0f1118':'#52565e'; ctx.fillRect(sx,sy,w,h);             // lot / apron
   // DAY: a real 3/4 courtyard-apartment sprite fronting the street; NIGHT: procedural lit-window box (keeps the glow).
   const im = (!night && z>0.7) ? IMG[APT_SPRITES[(Math.abs(p.v*101|0))%APT_SPRITES.length]] : null;
-  if(im){ drawBldgSprite(im,sx,sy,w,h); }
+  if(im){ drawBldgSprite(im,sx,sy,w,h,p,L); }
   else {
     bldgBlock(sx+m,sy+m,w-2*m,h-2*m, night?'#1b2030':'#'+['8c8f96','9aa0a6','7e848c'][(p.v*3|0)%3], p.v, night, true, 16);
     ctx.fillStyle=night?'rgba(0,0,0,.4)':'rgba(0,0,0,.22)'; ctx.fillRect(sx+m,sy+m+(h-2*m)*0.82,w-2*m,(h-2*m)*0.18); // carport
@@ -2678,9 +2695,31 @@ function drawApartments(p,sx,sy,w,h,L){ const z=cam.z, night=L.night, m=5*z;
 }
 // draw a 3/4 building SPRITE filling a parcel: scaled to the block width, base on the south frontage,
 // rising north, with a soft contact shadow. Render-only; the caller chooses day/night + which sprite set.
-function drawBldgSprite(im,sx,sy,w,h){ const z=cam.z;
+// THE APRON. Storefront sprites are BOTTOM-aligned in their parcel (below), so everything behind
+// them stayed the parcel's flat base fill. On a big parcel that is a featureless slab sitting in the
+// middle of the Valley — the map's most obvious "unfinished" tell in a survey pull-back. Every Valley
+// strip mall has a LOT back there, so paint one: asphalt, faint stall stripes, and a curb where it
+// meets the building. Deterministic (stall count off the parcel's own width), zoom-gated like the rest
+// of the close-up dressing, render-only.
+function drawApron(p,sx,sy,w,ah,L){
+  if(ah<6) return; const z=cam.z, night=L.night;
+  ctx.fillStyle=night?'#15181f':'#4f5359'; ctx.fillRect(sx,sy,w,ah);
+  if(z<=0.7) return;                                     // survey pull-back keeps it clean
+  ctx.save();
+  ctx.strokeStyle=night?'rgba(200,205,215,.10)':'rgba(240,240,245,.26)';
+  ctx.lineWidth=Math.max(1,1.2*z);
+  const stalls=Math.max(3,(p&&p.w?(p.w/24)|0:5)), step=w/stalls;
+  ctx.beginPath();
+  for(let i=1;i<stalls;i++){ const x=sx+i*step; ctx.moveTo(x,sy+ah*0.20); ctx.lineTo(x,sy+ah*0.80); }
+  ctx.stroke();
+  ctx.fillStyle=night?'rgba(150,155,165,.16)':'rgba(232,234,240,.32)';   // curb at the building line
+  ctx.fillRect(sx,sy+ah-Math.max(1,2*z),w,Math.max(1,2*z));
+  ctx.restore();
+}
+function drawBldgSprite(im,sx,sy,w,h,p,L){ const z=cam.z;
   const scale=(w*1.04)/im.width, dw=im.width*scale, dh=im.height*scale;
   const dx=sx+(w-dw)/2, dy=sy+h-dh;
+  if(L) drawApron(p,sx,sy,w,dy-sy,L);                    // dress the leftover behind the building
   ctx.fillStyle='rgba(0,0,0,.18)'; ctx.fillRect(sx+2*z, dy+dh*0.5, w-4*z, dh*0.5);
   ctx.drawImage(im, dx, dy, dw, dh);
 }
@@ -2690,7 +2729,7 @@ function drawStrip(p,sx,sy,w,h,L){ const z=cam.z, night=L.night;
   // fixed parcel, else a shop from the per-mission pool. NIGHT: procedural.
   const place=G.placeAt&&G.placeAt.get(p);
   const sim=(!night && z>0.7) ? ((place && IMG['buildings/'+place.kind]) || shopFor(p)) : null;
-  if(sim){ drawBldgSprite(sim,sx,sy,w,h); return; }
+  if(sim){ drawBldgSprite(sim,sx,sy,w,h,p,L); return; }
   const bh=h*0.42, bw=w*0.92, bx=sx+w*0.04, by=sy+h*0.05;
   bldgBlock(bx,by,bw,bh, night?'#202533':'#8a8f97', p.v, night, true, 9);  // strip-mall (low-medium)
   ctx.fillStyle=night?'rgba(255,159,28,.85)':'rgba(220,120,40,.9)'; ctx.fillRect(bx,by+bh,bw,Math.max(2,4*z)); // sign band
@@ -2702,7 +2741,7 @@ function drawPlaza(p,sx,sy,w,h,L){ const z=cam.z, night=L.night, m=4*z;
   ctx.fillStyle=night?'#13161d':'#5a5e64'; ctx.fillRect(sx,sy,w,h);
   const place=G.placeAt&&G.placeAt.get(p);                                     // an anchored named business can sit on a plaza parcel too
   const pim=(!night && z>0.7)?((place && IMG['buildings/'+place.kind]) || shopFor(p)):null;   // DAY: anchored business, else the per-mission pool
-  if(pim){ drawBldgSprite(pim,sx,sy,w,h); return; }
+  if(pim){ drawBldgSprite(pim,sx,sy,w,h,p,L); return; }
   bldgBlock(sx+m,sy+m,w-2*m,h*0.7, night?'#1d2230':'#80858d', p.v, night, true, 13);  // plaza (medium-tall)
   ctx.fillStyle=night?'rgba(66,230,255,.6)':'rgba(60,90,120,.6)'; ctx.fillRect(sx+w*0.42,sy+h*0.7,w*0.16,Math.max(2,5*z)); // entrance
 }
@@ -4084,6 +4123,33 @@ function selfTest(){
       const ex1=c.axis==='v'?line:(c.bk+1)*CELL, ey1=c.axis==='v'?(c.bk+1)*CELL:line;
       if(onRoad(ex0,ey0)!==true || onRoad(ex1,ey1)!==true) throw new Error('a closure sealed an intersection');
     }
+    // THE ZEBRA JUMP MUST CLEAR IT. Joseph's report: "your car got stopped by a barrier you couldn't
+    // even zebra jump over." The wall is a DETOUR teacher, never a cage — GALLOP (the horn) has to
+    // carry you through, or a closure can trap a player who has no route left. Assert the pass-through
+    // at the engine seam (onRoad's ignoreClosed) AND through a real move tick.
+    { const c0=G.closures[0], line0=c0.gi*CELL, mid0=(c0.bk+0.5)*CELL;
+      const bx=c0.axis==='v'?line0:mid0, by=c0.axis==='v'?mid0:line0;
+      if(onRoad(bx,by,false)!==false) throw new Error('closed band is not a wall when walking normally');
+      if(onRoad(bx,by,true)!==true)  throw new Error('GALLOP cannot pass the closed band (ignoreClosed ignored)');
+      // and the real move path: park just short of the band, gallop, drive in — the car must ENTER it
+      G.mode='drive'; keys.left=keys.right=keys.brake=false; keys.gas=true;
+      G.car.x=bx; G.car.y=by; G.car.ang=0; G.car.spd=60; gallop();
+      if(!(G.gallopT>0)) throw new Error('gallop() did not arm the horn-jump');
+      const wasIn=closedAt(G.car.x,G.car.y);
+      updateDrive(DT);
+      if(wasIn && closedAt(G.car.x,G.car.y)===false && G.car.spd<=0) throw new Error('gallop stalled inside the closure');
+      keys.gas=false; }
+    // TRAFFIC MUST NOT GHOST IT. The other half of Joseph's report: AI cars drove through the
+    // barricade the player could not. Traffic U-turns on ENTRY (flip only when stepping IN, so a car
+    // spawned inside drives out and can never re-enter). Drive the whole fleet a long way and assert
+    // no car is ever found sitting inside a closed band.
+    { startRun(); G.li=ci; loadLevel(); G.mode='drive';
+      let ghost=null;
+      keys.gas=keys.brake=keys.left=keys.right=keys.laylow=false;
+      for(let t=0;t<900 && !ghost;t++){ updateDrive(DT);          // traffic is stepped inside updateDrive
+        for(const c of G.traffic){ const gx=c.vert?c.line:c.pos, gy=c.vert?c.pos:c.line;
+          if(closedAt(gx,gy)){ ghost=Math.round(gx)+','+Math.round(gy); break; } } }
+      if(ghost) throw new Error('a traffic car ghosted into a ROAD CLOSED band at '+ghost); }
     // EVERY fare reachable over the road graph WITH the closures (navigation, not teleport)
     const cg=G.channel?G.channel.g:-1, K=(i,j)=>i+','+j;
     const eb=(i,j,ni,nj)=>{ if(i===ni&&i===cg&&Math.abs(j-nj)===1) return true;
@@ -4423,6 +4489,34 @@ function selfTest(){
     if(dispatchK()!==1) throw new Error('dispatchK must settle at 1 once the beat closes');
   }catch(e){ dspOK=false; dspErr=String((e&&e.message)||e); }
   ok('ZEEEE dispatch beat opens on a drop, closes on time, stays render-only', dspOK, dspErr);
+  // ROAD COHESION — EVERY level's street network must be ONE connected graph, and every fare must
+  // sit on it. This is the whole-map version of the per-closure BFS above: it walks all 12 levels
+  // (campaign + the DTLA bonus), treats a grid intersection as a node and a drivable mid-segment as
+  // an edge, and asserts nothing is stranded. It catches the class of bug where a landmark (the
+  // flood channel, a closure, a one-way grid) quietly cuts the map into two islands.
+  let rcOK=true, rcErr='';
+  try{
+    for(let li=0; li<LEVELS.length; li++){
+      startRun(); G.li=li; loadLevel();
+      const KK=(i,j)=>i+','+j, nodes=[];
+      for(let i=0;i<GRIDN;i++) for(let j=0;j<GRIDN;j++) if(onRoad(i*CELL,j*CELL)) nodes.push([i,j]);
+      if(!nodes.length) throw new Error(LEVELS[li].name+': no drivable intersections at all');
+      const nodeSet=new Set(nodes.map(n=>KK(n[0],n[1])));
+      const seen=new Set([KK(nodes[0][0],nodes[0][1])]), q=[nodes[0]];
+      while(q.length){ const [i,j]=q.shift();
+        for(const [ni,nj] of [[i+1,j],[i-1,j],[i,j+1],[i,j-1]]){
+          if(ni<0||nj<0||ni>=GRIDN||nj>=GRIDN) continue;
+          const k=KK(ni,nj); if(seen.has(k)||!nodeSet.has(k)) continue;
+          if(!onRoad(((i+ni)/2)*CELL,((j+nj)/2)*CELL)) continue;   // the segment between them must be drivable
+          seen.add(k); q.push([ni,nj]); } }
+      if(seen.size!==nodes.length)
+        throw new Error(LEVELS[li].name+': road graph is fragmented — '+(nodes.length-seen.size)+' of '+nodes.length+' intersections stranded');
+      for(const f of (G.fares||[])) for(const pt of [f.pickup,f.drop]){ if(!pt) continue;
+        if(!seen.has(KK(Math.round(pt.x/CELL),Math.round(pt.y/CELL))))
+          throw new Error(LEVELS[li].name+': a fare sits off the connected road network'); }
+    }
+  }catch(e){ rcOK=false; rcErr=String((e&&e.message)||e); }
+  ok('every level is ONE connected road network with every fare on it', rcOK, rcErr);
   // CAMERA — close & personal by default; LAY LOW eases out to the strategic survey
   let camOK=true, camErr='';
   try{ startRun(); G.li=1; loadLevel(); G.mode='drive'; keys.laylow=false;
