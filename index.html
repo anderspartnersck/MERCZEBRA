@@ -2093,13 +2093,47 @@ function drawValleyEdges(L){
       drawRidge(syS+10*z, sunX, night?'#070a10':(mojave?'#5e472a':'#473e50'), 0.5, 38*z, 0.012);
     }
   }
-  // marine-layer haze beyond the NORTH boundary
+  // Beyond the NORTH boundary. This used to be a bare gradient wash and nothing else, so on a LAY LOW
+  // survey the top of the frame was a featureless gray slab — the map visibly ENDING rather than
+  // receding. The south has had two ridges, the sun-gap and the light basin all along; the north got
+  // nothing. The real Valley's north rim is the Santa Susana / Simi hills, so they go in — pushed
+  // FAR back with atmospheric perspective (low contrast, cool, the marine wash laid OVER them) so
+  // they read as distance, never as a wall. Deterministic, render-only.
   const syN=W2S(cam.x,0)[1];
   if(syN>0 && !mojave){
+    if(!downtown) drawNorthRidge(syN, night);          // the far rim, under the haze
     const mz=ctx.createLinearGradient(0,0,0,syN);
     mz.addColorStop(0,night?'#0b0e16':'#aeb6bd'); mz.addColorStop(1,night?'rgba(11,14,22,0)':'rgba(174,182,189,0)');
     ctx.fillStyle=mz; ctx.fillRect(0,0,W,syN);
   }
+}
+// The north rim, mirrored from drawRidge: the fill hangs DOWN from the top of the frame to the ridge
+// line instead of rising from a base. Two ranges, the farther one flatter and paler — atmospheric
+// perspective does the work, so it never competes with the playfield.
+function drawNorthRidge(syN, night){
+  // The rim has to fill whatever void the camera is showing. On a LAY LOW survey the map's north
+  // edge can sit 45% of the way down the frame, and a fixed 30px hill leaves the rest bare — which
+  // is the bug. So the ranges SCALE with syN (how much sky is actually visible), capped so they
+  // never climb off the top, and a horizon glow seats them instead of a flat fill.
+  const span=Math.min(syN, H*0.55);                         // the void we have to dress
+  if(span<8) return;
+  // a deeper wash first: cool high, warmer/paler at the horizon line — marine layer, not flat paint
+  const gw=ctx.createLinearGradient(0,Math.max(0,syN-span),0,syN);
+  if(night){ gw.addColorStop(0,'#070a12'); gw.addColorStop(1,'#182033'); }
+  else     { gw.addColorStop(0,'#98a3ae'); gw.addColorStop(1,'#c6ccd2'); }
+  ctx.fillStyle=gw; ctx.fillRect(0,Math.max(0,syN-span),W,span);
+  const band=(col, ampF, freq, phase, liftF)=>{
+    const amp=span*ampF, baseY=Math.max(0, syN-span*liftF);
+    ctx.save(); ctx.fillStyle=col; ctx.beginPath(); ctx.moveTo(-20,-20); ctx.lineTo(-20,baseY);
+    for(let sx=-20;sx<=W+20;sx+=8){
+      const y=baseY - amp*(0.55+0.5*Math.sin(sx*freq+phase)+0.28*Math.sin(sx*freq*2.7+phase*1.4));
+      ctx.lineTo(sx,y);
+    }
+    ctx.lineTo(W+20,-20); ctx.closePath(); ctx.fill(); ctx.restore();
+  };
+  band(night?'#131a2b':'#9aa4af', 0.26, 0.011, 2.1, 0.02);   // the near rim (Santa Susana)
+  band(night?'#0d1320':'#a9b2bb', 0.40, 0.007, 0.7, 0.16);   // farther, flatter, paler
+  band(night?'#0a0f1a':'#b8bfc6', 0.55, 0.004, 3.3, 0.34);   // the last range dissolving into haze
 }
 function drawRidge(baseY,sunX,col,phase,amp,freq){
   ctx.save(); ctx.fillStyle=col; ctx.beginPath(); ctx.moveTo(-20,H+20); ctx.lineTo(-20,baseY);
