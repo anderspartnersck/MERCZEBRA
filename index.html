@@ -329,6 +329,37 @@ const MISSIONS=[
 /* ---------- world / grid config ---------- */
 const CELL=240;            // block size (world px)
 const ROADH=40;            // road half-width
+/* ---------- LIGHT: one sun for the whole Valley ----------
+   The sky has had a sun since the Sky Bible pass — white, low, anchored south-WEST in the ridgeline
+   gap (drawValleyEdges' sunX). The ground never knew about it. All 51 shadows in this file were
+   symmetric blobs stamped directly under their object, which is precisely why drawn geometry and
+   photographic art refuse to sit together: the storefront PNGs carry real baked light and everything
+   procedural carried none, so the eye reads two unrelated pictures.
+
+   One shared vector fixes the disagreement, and MAY GRAY makes it easy to match: under a marine layer
+   the sun is a disc behind cloud, so shadows are SHORT, SOFT and low-contrast. That is both what the
+   photographs already show and the cheapest thing to blend with — a long hard shadow would fight them.
+
+   Sun sits south-west, so shadows fall to the north-EAST: +x, -y.  Tune the Valley's light HERE. */
+const LIGHT = {
+  dx:  0.62,   // shadow direction, screen-space, normalised-ish
+  dy: -0.30,   // negative = up-screen (north), because the sun is low in the south
+  len: 0.42,   // shadow length as a fraction of the caster's height — short: it is overcast
+  a:   0.22,   // base opacity. Soft. The marine layer does not do hard edges.
+};
+// Lay a caster's shadow on the ground, offset toward the light. `h` is the caster's drawn height;
+// `wid` its footprint width. Returns nothing — call it BEFORE drawing the caster.
+function castShadow(sx, sy, wid, h, night, mul){
+  const L=LIGHT, len=h*L.len, a=L.a*(night?0.55:1)*(mul==null?1:mul);
+  if(len<1||a<=0.01) return;
+  ctx.save(); ctx.globalAlpha=a; ctx.fillStyle='#000';
+  ctx.beginPath();                       // a skewed quad running away from the sun, tapering slightly
+  ctx.moveTo(sx-wid*0.5, sy);
+  ctx.lineTo(sx+wid*0.5, sy);
+  ctx.lineTo(sx+wid*0.34+L.dx*len, sy+L.dy*len);
+  ctx.lineTo(sx-wid*0.34+L.dx*len, sy+L.dy*len);
+  ctx.closePath(); ctx.fill(); ctx.restore();
+}
 /* ---------- SCALE: ONE PROPORTION LADDER FOR THE WHOLE VALLEY ----------
    Every drawn height used to be a magic number at its own call site — buildings extruded 4/7/9/13/16,
    the pylons stood 104 and 74 — and nothing related them, so nothing kept them in proportion. They ARE
@@ -2526,8 +2557,7 @@ function pylonPalette(night){
 function drawPylonTower(sx, sy, h, night, fade){
   const P=pylonPalette(night), wBase=h*0.30, wTop=h*0.11;
   ctx.save(); ctx.globalAlpha=fade;
-  ctx.fillStyle='rgba(0,0,0,.28)';                                     // base shadow seats it on the ground
-  ctx.beginPath(); ctx.ellipse(sx, sy, wBase*0.55, Math.max(1.5,h*0.03), 0, 0, 7); ctx.fill();
+  castShadow(sx, sy, wBase*0.7, h, night, 0.85);                       // the Valley's one sun, not a blob
   const legL=(t)=>sx - (wBase - (wBase-wTop)*t)/2, legR=(t)=>sx + (wBase - (wBase-wTop)*t)/2;
   const yAt=(t)=>sy - h*t;
   ctx.strokeStyle=P.steel; ctx.lineWidth=Math.max(1, h*0.022); ctx.lineCap='round';
@@ -2555,8 +2585,7 @@ function drawPylonTower(sx, sy, h, night, fade){
 function drawUtilityPole(sx, sy, h, night, fade){
   const P=pylonPalette(night);
   ctx.save(); ctx.globalAlpha=fade;
-  ctx.fillStyle='rgba(0,0,0,.24)';
-  ctx.beginPath(); ctx.ellipse(sx, sy, h*0.07, Math.max(1,h*0.022), 0, 0, 7); ctx.fill();
+  castShadow(sx, sy, h*0.10, h, night, 0.8);
   ctx.strokeStyle=night?'#2b2a28':'#6d6055'; ctx.lineWidth=Math.max(1, h*0.045); ctx.lineCap='round';
   ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx, sy-h); ctx.stroke();
   const ay=sy-h*0.84, aw=h*0.42;
@@ -2809,6 +2838,10 @@ function shade(c,f){ if(typeof c!=='string'||c[0]!=='#') return c;
 // inside tall buildings." ht = world-units of height (render-only; 0/absent = the old flat block).
 function bldgBlock(sx,sy,w,h,col,wseed,night,lit,ht){
   const z=cam.z, H3=Math.max(0,(ht!=null?ht:11))*z;
+  // Ground the volume in the Valley's one sun before the box goes down, so a drawn block and a
+  // photographed storefront on the next parcel agree about where the light is. Short and soft:
+  // May gray is an overcast disc, not a hard noon.
+  if(H3>0) castShadow(sx+w/2, sy+h, w*0.92, H3, night, 0.9);
   // direction from screen center -> outward splay
   const cxp=sx+w/2, cyp=sy+h/2; let dx=cxp-W/2, dy=cyp-H/2; const d=Math.hypot(dx,dy)||1;
   const k=H3>0 ? Math.min(1, d/(Math.min(W,H)*0.46)) : 0;
@@ -2944,6 +2977,10 @@ function drawBldgSprite(im,sx,sy,w,h,p,L){ const z=cam.z;
   const scale=(w*1.04)/im.width, dw=im.width*scale, dh=im.height*scale;
   const dx=sx+(w-dw)/2, dy=sy+h-dh;
   if(L) drawApron(p,sx,sy,w,dy-sy,L);                    // dress the leftover behind the building
+  // The storefront PNGs are 3/4 billboards with their own baked light; we cannot relight them, but
+  // the shadow they DROP is ours — so cast it with the same sun the drawn blocks use. That single
+  // agreement is what lets photographic and procedural sit on the same street.
+  castShadow(dx+dw/2, dy+dh, dw*0.88, dh*0.55, L&&L.night, 0.75);
   ctx.fillStyle='rgba(0,0,0,.18)'; ctx.fillRect(sx+2*z, dy+dh*0.5, w-4*z, dh*0.5);
   ctx.drawImage(im, dx, dy, dw, dh);
 }
