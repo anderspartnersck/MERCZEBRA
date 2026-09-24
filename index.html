@@ -3420,7 +3420,7 @@ function drawEndingDesert(){                                    // a low gray su
 }
 function drawAttractBg(){
   const sky=IMG['sky/menu']||IMG['sky/downtown']||IMG['sky/valley'];   // MAY GRAY SKY PACK behind the front-end
-  if(sky){ drawImgCover(sky); return; }
+  if(sky){ drawImgCover(sky, IMG['sky/menu']?'sky/menu':IMG['sky/downtown']?'sky/downtown':'sky/valley'); return; }
   const g=ctx.createLinearGradient(0,0,0,H);
   g.addColorStop(0,'#9aa7b6'); g.addColorStop(.6,'#bcc4cc'); g.addColorStop(1,getCss('--peach'));
   ctx.fillStyle=g; ctx.fillRect(0,0,W,H); }
@@ -3745,9 +3745,32 @@ function drawMercury(cx,cy,s){
     ctx.beginPath(); ctx.moveTo(-s*0.44-len,yy); ctx.lineTo(-s*0.44,yy); ctx.stroke(); }
   ctx.restore();
 }
-// draw a loaded image to COVER the whole canvas (fill + center-crop) — full-screen art
-function drawImgCover(im){ const r=Math.max(W/im.width,H/im.height), w=im.width*r, h=im.height*r;
-  ctx.drawImage(im,(W-w)/2,(H-h)/2,w,h); }
+/* ---------- FRAMING: a CHOICE, not a centre-crop ----------
+   The game's frame is SQUARE (the locked `view=game` format) but almost every
+   photographic asset is 3:2 or 2:1 — the MAY GRAY SKY PACK panoramas are 7392x3696.
+   A cover-fit of a 2:1 pano into 1:1 draws it 1800 wide in a 900 window, so HALF the
+   picture is thrown away, and the blind centre crop decides which half. That is how a
+   widescreen photo ends up jammed in the square hole.
+
+   FRAME_FOCUS names the point of interest per image key as [fx,fy], 0..1 — the part of
+   the picture the square should hold. 0.5,0.5 is dead centre = the old behaviour, so any
+   key NOT listed here is byte-unchanged. Add a key to MAKE the framing decision.
+   Preview any value live without editing: ?focus=<fx>[,<fy>] overrides every cover draw. */
+const FRAME_FOCUS={
+  // 'sky/menu':[0.42,0.60],   // e.g. hold the sun-gap left of centre, sit low on the horizon
+};
+const _FOCUS_Q=(function(){ try{ const q=(location.search.match(/[?&]focus=([\d.,]+)/)||[])[1];
+  if(!q) return null; const a=q.split(',').map(parseFloat);
+  return [isNaN(a[0])?0.5:a[0], isNaN(a[1])?0.5:a[1]]; }catch(e){ return null; } })();
+function frameFocus(key){ return _FOCUS_Q || FRAME_FOCUS[key] || null; }
+// draw a loaded image to COVER the whole canvas (fill + crop). `key` opts the draw into
+// FRAME_FOCUS; without one it centre-crops exactly as before.
+function drawImgCover(im,key){ const r=Math.max(W/im.width,H/im.height), w=im.width*r, h=im.height*r;
+  const f=frameFocus(key);
+  if(!f){ ctx.drawImage(im,(W-w)/2,(H-h)/2,w,h); return; }        // unlisted key = centre, as before
+  // slide the crop window to the focal point, clamped so it never leaves a gutter
+  const x=Math.min(0,Math.max(W-w,-(w-W)*f[0])), y=Math.min(0,Math.max(H-h,-(h-H)*f[1]));
+  ctx.drawImage(im,x,y,w,h); }
 // attract-reel backdrop: COVER when the frame is no wider than the art (the portrait cab,
 // byte-unchanged); AMBILIGHT when wider (blurred cover fill + the sharp art contained on
 // top) so the portrait stills aren't cropped at 16:9 — keeps the keyart title whole.
