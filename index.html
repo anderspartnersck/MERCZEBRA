@@ -388,6 +388,14 @@ const TUNE={
   // terminal; deliver with NO wreck while they're aboard and they TIP (+vipBonusSec on the clock). Wreck with
   // them aboard = rattled, no tip. Pure upside (the complaint still fires — everyone complains); never a kill.
   vipBonusSec:8,
+  // ZEEEE DISPATCH BEAT — the tempo of the order loop. A dropoff and the next order used to
+  // land in the SAME FRAME: you delivered and the next beacon was already lit, so the run read
+  // as one undifferentiated errand instead of a rhythm of gigs. dispatchSec is how long the
+  // app "looks for your next order" — the banner, the minimap ping and the beacon fade-in all
+  // ride this window. It is RENDER-ONLY (measured off G.timeLeft, which the sim already owns),
+  // so the fare is live the instant it advances and balance is byte-identical. Make it cost
+  // real time by gating attemptRide on dispatchAge() — then re-baseline `make balance`.
+  dispatchSec:1.6,
   // VENTURA CENTER — the QUEEN'S GAME timed-beam window (level 9, night). The cyan drop-beam PULSES; you can
   // only complete a dropoff while it's OPEN ("don't keep her waiting") — miss it and you idle exposed (Jackie /
   // the clock) until the next window. Global pulse off elapsed level time (deterministic). A real wrinkle —
@@ -469,7 +477,7 @@ const G={
   mode:'boot', li:0, level:null, t:0,
   credits:0, stars:[], stuntPath:'none', stuntCard:false, lives:3, oneUps:2, gameover:false,
   // per level
-  timeLeft:0, delivered:0, wrecks:0, complaints:0, busts:0,
+  timeLeft:0, delivered:0, wrecks:0, complaints:0, busts:0, dispatchAt:null,
   heat:0, damage:0, copOn:false,
   // car
   car:{x:0,y:0,ang:0,spd:0},
@@ -830,7 +838,7 @@ function loadLevel(){
   // fingerprint — apply those deliberately, then re-baseline `make balance`).
   G.city = (typeof window!=='undefined' && window.CITY_PRESETS && window.CITY_PRESETS[L.name]) || null;
   G._cityParcels = (typeof location!=='undefined' && /[?&]cityparcels/.test(location.search||''));
-  G.timeLeft=L.time; G.delivered=0; G.wrecks=0; G.complaints=0; G.busts=0;
+  G.timeLeft=L.time; G.delivered=0; G.wrecks=0; G.complaints=0; G.busts=0; G.dispatchAt=null;
   G.heat=0; G.damage=0; G.copOn=false; G.cops=[]; G.beam=null; G.toast=null;
   G.choiceShown=false; G.rideActive=false; G.choiceSel=0; G.choiceKind='stunt';
   G.skidRun=null; G.exits=null; G.bonusOutcome=null; G.atCourtesy=false;   // THE COURTESY bonus state
@@ -1542,7 +1550,7 @@ function attemptRide(){
   }
   if(f.phase==='pickup' && G.cheats.instantDeliver){            // jailbroken: clear on pickup (route practice, no complaint)
     f.phase='done'; G.delivered++; sfx.deliver(); beamAt(f.pickup,'green');
-    G.fareIdx++; if(G.fares[G.fareIdx]) sfx.ping(); return; }
+    G.fareIdx++; G.dispatchAt=G.timeLeft; if(G.fares[G.fareIdx]) sfx.ping(); return; }
   if(f.phase==='pickup'){ f.phase='ride'; sfx.pickup();
     beamAt(f.pickup, f.vip?'gold':'white');
     if(f.vip){ G.vipAboard=true; G.vipRough=false; G.toast={text:"VIP ABOARD — KEEP IT SMOOTH TO THE TERMINAL",t:2.6}; }
@@ -1557,10 +1565,15 @@ function attemptRide(){
       if(!G.vipRough){ G.timeLeft+=TUNE.vipBonusSec; G.toast={text:'VIP TIPPED · +'+TUNE.vipBonusSec+'s — "'+c+'"',t:2.8}; }
       else G.toast={text:'VIP RATTLED · no tip — "'+c+'"',t:2.6}; }
     else G.toast={text:'DROPPED OFF · "'+c+'"',t:2.4};
-    G.fareIdx++;
+    G.fareIdx++; G.dispatchAt=G.timeLeft;                       // open the dispatch beat
     if(G.fares[G.fareIdx]) sfx.ping();                          // ZEEEE pings the next order in
   }
 }
+// How far into the ZEEEE DISPATCH BEAT we are: seconds since the last order advanced, or null.
+// Read off G.timeLeft (the sim already owns it) so this adds NO state the sim can diverge on.
+function dispatchAge(){ if(G.dispatchAt==null) return null;
+  const a=G.dispatchAt-G.timeLeft; return (a>=0 && a<TUNE.dispatchSec) ? a : null; }
+function dispatchK(){ const a=dispatchAge(); return a==null?1:Math.min(1,a/TUNE.dispatchSec); }
 function beamAt(pt,col){ G.beam={wx:pt.x,wy:pt.y,t:1.4,col}; }
 // VENTURA — the QUEEN'S GAME beam window. A global cyan-beam pulse off elapsed level time (deterministic):
 // OPEN for queenOpen, then CLOSED for queenClosed. Dropoffs only complete while OPEN. queenPhase() = seconds
@@ -3209,6 +3222,16 @@ function drawHUD(){
   if(G.bladesHere){ ctx.textAlign='center'; ctx.fillStyle=Math.sin(G.t*7)>-.3?getCss('--amber'):'rgba(0,0,0,0)';
     ctx.font='bold 19px "Courier New",monospace';
     ctx.fillText(G.blades.phase==='pickup'?'MOJAVE BLADES — RIDE TO LOAD':'AIRFIELD — RIDE TO DROP BLADES',W/2,H*0.39); ctx.textAlign='left'; }
+  // ZEEEE DISPATCH — the new gig announces itself, so deliver -> next order reads as a BEAT.
+  { const da=dispatchAge(), nf=G.fares[G.fareIdx];
+    if(da!=null && nf && nf.phase!=='done' && !L.allgreens){
+      const k=dispatchK(), a=Math.sin(Math.min(1,k*1.35)*Math.PI);   // rise and settle
+      ctx.save(); ctx.textAlign='center'; ctx.globalAlpha=Math.max(0,a);
+      ctx.font='bold 15px "Courier New",monospace'; ctx.fillStyle=getCss('--gold');
+      ctx.fillText('◆ ZEEEE · NEW ORDER ◆', W/2, H*0.30);
+      ctx.font='13px "Courier New",monospace'; ctx.fillStyle='#e7eaee';
+      ctx.fillText((nf.pickup.name||'a fare')+'  —  pick up', W/2, H*0.30+22);
+      ctx.restore(); } }
   if(G.rideHere && !L.allgreens && G.fares[G.fareIdx]){ const f=G.fares[G.fareIdx]; ctx.textAlign='center';
     ctx.fillStyle=Math.sin(G.t*7)>-.3?getCss('--gold'):'rgba(0,0,0,0)';
     ctx.font='bold 22px "Courier New",monospace';
@@ -3241,8 +3264,14 @@ function drawMiniMap(x,y,w,h){
   if(G.level.allgreens){ for(const g of G.gates){ ctx.fillStyle=g.cleared?getCss('--green-dim'):(g.green?getCss('--green'):getCss('--hot'));
     ctx.fillRect(mx(g.x)-3,my(g.y)-1,6,2); } }
   else { const f=G.fares[G.fareIdx]; if(f){ const t=f.phase==='pickup'?f.pickup:f.drop;
+    const dk=dispatchK();                                       // 0..1 across the ZEEEE dispatch beat
     ctx.fillStyle=f.phase==='pickup'?getCss('--gold'):(G.level.queen?getCss('--cyan'):getCss('--green'));
-    ctx.beginPath();ctx.arc(mx(t.x),my(t.y),3.5,0,7);ctx.fill(); }
+    ctx.save(); ctx.globalAlpha=0.35+0.65*dk;                   // the new order fades UP on the minimap
+    ctx.beginPath();ctx.arc(mx(t.x),my(t.y),3.5*(1+(1-dk)*0.9),0,7);ctx.fill();
+    if(dk<1){                                                    // ...and a ping ring runs out from it
+      ctx.globalAlpha=(1-dk)*0.8; ctx.strokeStyle=ctx.fillStyle; ctx.lineWidth=1.5;
+      ctx.beginPath();ctx.arc(mx(t.x),my(t.y),3.5+16*dk,0,7);ctx.stroke(); }
+    ctx.restore(); }
     // upcoming fares dim
     for(let i=G.fareIdx+1;i<G.fares.length;i++){ const t=G.fares[i].pickup; ctx.fillStyle='rgba(255,207,51,.4)';
       ctx.beginPath();ctx.arc(mx(t.x),my(t.y),2,0,7);ctx.fill(); } }
@@ -4361,6 +4390,25 @@ function selfTest(){
     IMG['vfx/wreck']={width:1694,height:624}; drawHazards(); delete IMG['vfx/wreck']; }        // hauler shed-car art
   catch(e){ glp=false; glpErr=String((e&&e.message)||e); }
   ok('FX renders (gallop herd/grid/ascii · speed streak+wheels · signal head)', glp, glpErr);
+  // ZEEEE DISPATCH BEAT — a delivered gig opens a timed window before the next order settles in.
+  // It must be RENDER-ONLY: derived from G.timeLeft, never gating the sim (balance stays byte-exact).
+  let dspOK=true, dspErr='';
+  try{ startRun(); G.li=1; loadLevel(); G.mode='drive';
+    if(dispatchAge()!==null) throw new Error('a fresh level is already mid-dispatch');
+    const f=G.fares[G.fareIdx];
+    G.car.x=f.pickup.x; G.car.y=f.pickup.y; attemptRide();                 // board
+    if(G.fares[G.fareIdx].phase!=='ride') throw new Error('pickup did not board');
+    G.car.x=f.drop.x; G.car.y=f.drop.y; const idx0=G.fareIdx; attemptRide();  // deliver
+    if(G.fareIdx!==idx0+1) throw new Error('dropoff did not advance the order');
+    const a0=dispatchAge();
+    if(a0===null) throw new Error('dropoff opened no dispatch beat');
+    if(!(a0>=0 && a0<TUNE.dispatchSec)) throw new Error('dispatch age out of window: '+a0);
+    if(!(dispatchK()>=0 && dispatchK()<=1)) throw new Error('dispatchK out of 0..1');
+    G.timeLeft=G.dispatchAt-TUNE.dispatchSec-0.01;                         // run the window out
+    if(dispatchAge()!==null) throw new Error('dispatch beat never closes');
+    if(dispatchK()!==1) throw new Error('dispatchK must settle at 1 once the beat closes');
+  }catch(e){ dspOK=false; dspErr=String((e&&e.message)||e); }
+  ok('ZEEEE dispatch beat opens on a drop, closes on time, stays render-only', dspOK, dspErr);
   // CAMERA — close & personal by default; LAY LOW eases out to the strategic survey
   let camOK=true, camErr='';
   try{ startRun(); G.li=1; loadLevel(); G.mode='drive'; keys.laylow=false;
