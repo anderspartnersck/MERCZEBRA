@@ -825,8 +825,11 @@ function tryImg(k,src){const i=new Image();i.onload=()=>IMG[k]=i;i.src=src;}
  // floor = the sloped floor w/ the center trickle · bank = weathered concrete wall · outlet = the storm-drain mouths (a landmark)
  // tower0-2 = transmission-line pylons that flank the wash (the power line follows the LA River)
  // pole0-2 = utility poles along the banks · debris0-2 = trash/rubble on the channel floor (LA-River grime)
- 'river/floor','river/bank','river/outlet','river/tower0','river/tower1','river/tower2',
- 'river/pole0','river/pole1','river/pole2','river/debris0','river/debris1','river/debris2',
+ 'river/floor','river/bank','river/outlet',
+ // NOTE: river/tower0-2 and river/pole0-2 are NO LONGER LOADED — the transmission towers and utility
+ // poles are drawn procedurally now (drawPylonTower/drawUtilityPole). The PNGs stay on disk and THE
+ // GARAGE will list them as orphans, which is the truth: they are retired art, not missing art.
+ 'river/debris0','river/debris1','river/debris2',
  // debris3/4 = dumped SHOPPING CARTS (LA RIVER 2, cut 0924) — the grime the real channel is full of.
  // Top-down compatible, unlike that sheet's bridges, which are side ELEVATIONS (see PERSPECTIVE LAW).
  'river/debris3','river/debris4'
@@ -2504,8 +2507,76 @@ function drawChannel(L){
 // CHANNEL CORRIDOR — the only strip of map with no parcel under it — which is what keeps them from
 // drawing on top of a storefront (they render after drawParcels and cannot be depth-sorted).
 const PYLON_TOWER_K = 1.12, PYLON_POLE_K = 0.95;
+/* ---------- PROCEDURAL POWER LINE — the first test of the hybrid ----------
+   These were photographic cut-outs, and they were the worst possible element to make a sprite: tall,
+   free-standing, and drawn AFTER the parcels in a view with no depth sort — so they stamped a hard
+   photographic edge over whatever storefront they happened to cross. Drawn instead, they:
+     · take SCALE.tower / SCALE.pole for free, so they can never drift out of the ladder again
+     · tint toward the marine haze with distance, which a cut-out can't do
+     · carry WIRES between successive towers — the thing that actually says "the power line follows
+       the river", and the thing a per-tower sprite fundamentally cannot draw
+   House rule for the mix (see the 101, which is procedural and sits fine beside the photographic hero
+   car): photographic art for what you look AT, drawn geometry for the world you move THROUGH. */
+function pylonPalette(night){
+  return night ? {steel:'#28303f', dark:'#161c26', wire:'rgba(150,165,190,.35)'}
+               : {steel:'#8d949d', dark:'#666d77', wire:'rgba(70,78,90,.38)'};
+}
+// One lattice transmission tower, anchored at its base, rising up-screen. Returns the crossarm
+// anchor points so the caller can string wire to the next one.
+function drawPylonTower(sx, sy, h, night, fade){
+  const P=pylonPalette(night), wBase=h*0.30, wTop=h*0.11;
+  ctx.save(); ctx.globalAlpha=fade;
+  ctx.fillStyle='rgba(0,0,0,.28)';                                     // base shadow seats it on the ground
+  ctx.beginPath(); ctx.ellipse(sx, sy, wBase*0.55, Math.max(1.5,h*0.03), 0, 0, 7); ctx.fill();
+  const legL=(t)=>sx - (wBase - (wBase-wTop)*t)/2, legR=(t)=>sx + (wBase - (wBase-wTop)*t)/2;
+  const yAt=(t)=>sy - h*t;
+  ctx.strokeStyle=P.steel; ctx.lineWidth=Math.max(1, h*0.022); ctx.lineCap='round';
+  ctx.beginPath();                                                      // the two tapering legs
+  ctx.moveTo(legL(0),yAt(0)); ctx.lineTo(legL(1),yAt(1));
+  ctx.moveTo(legR(0),yAt(0)); ctx.lineTo(legR(1),yAt(1)); ctx.stroke();
+  ctx.strokeStyle=P.dark; ctx.lineWidth=Math.max(1, h*0.012);           // X cross-bracing up the body
+  ctx.beginPath();
+  for(let i=0;i<5;i++){ const t0=i/5, t1=(i+1)/5;
+    ctx.moveTo(legL(t0),yAt(t0)); ctx.lineTo(legR(t1),yAt(t1));
+    ctx.moveTo(legR(t0),yAt(t0)); ctx.lineTo(legL(t1),yAt(t1));
+    ctx.moveTo(legL(t1),yAt(t1)); ctx.lineTo(legR(t1),yAt(t1)); }
+  ctx.stroke();
+  const arms=[];                                                        // crossarms + insulators
+  ctx.strokeStyle=P.steel; ctx.lineWidth=Math.max(1, h*0.020);
+  for(const t of [0.62, 0.80, 0.95]){
+    const y=yAt(t), aw=(wBase - (wBase-wTop)*t)*1.9;
+    ctx.beginPath(); ctx.moveTo(sx-aw/2,y); ctx.lineTo(sx+aw/2,y); ctx.stroke();
+    arms.push([sx-aw/2,y],[sx+aw/2,y]);
+  }
+  ctx.restore();
+  return arms;
+}
+// A wooden utility pole: a tapered trunk, one crossarm, a couple of insulator nubs.
+function drawUtilityPole(sx, sy, h, night, fade){
+  const P=pylonPalette(night);
+  ctx.save(); ctx.globalAlpha=fade;
+  ctx.fillStyle='rgba(0,0,0,.24)';
+  ctx.beginPath(); ctx.ellipse(sx, sy, h*0.07, Math.max(1,h*0.022), 0, 0, 7); ctx.fill();
+  ctx.strokeStyle=night?'#2b2a28':'#6d6055'; ctx.lineWidth=Math.max(1, h*0.045); ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx, sy-h); ctx.stroke();
+  const ay=sy-h*0.84, aw=h*0.42;
+  ctx.lineWidth=Math.max(1, h*0.032);
+  ctx.beginPath(); ctx.moveTo(sx-aw/2, ay); ctx.lineTo(sx+aw/2, ay); ctx.stroke();
+  ctx.fillStyle=P.steel;
+  for(const dx of [-aw*0.36, 0, aw*0.36]){ const r=Math.max(1,h*0.026);
+    ctx.beginPath(); ctx.arc(sx+dx, ay-r, r, 0, 7); ctx.fill(); }
+  ctx.restore();
+}
+// The catenary between two crossarm anchors — a real sag, not a straight line.
+function drawWire(a, b, night, fade){
+  const P=pylonPalette(night), sag=Math.abs(b[0]-a[0])*0.13;
+  ctx.save(); ctx.globalAlpha=fade*0.9; ctx.strokeStyle=P.wire; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(a[0],a[1]);
+  ctx.quadraticCurveTo((a[0]+b[0])/2, (a[1]+b[1])/2 + sag, b[0], b[1]);
+  ctx.stroke(); ctx.restore();
+}
 function drawChannelTowers(L){
-  if(!(streetTilesOn() && (IMG['river/tower0']||IMG['river/pole0']||IMG['river/debris0']))) return;
+  if(!streetTilesOn()) return;   // towers/poles are drawn now; only the floor grime is still sprite art
   const ch=G.channel, z=cam.z, night=L.night, x=ch.x, hT=ROADH*1.15, hF=ROADH*0.5;
   // an upright elevation prop anchored at its base on the ground, rising up-screen (like the buildings), culled + base-shadow.
   const upright=(t,wx,wy,worldH,alpha)=>{ const sp=W2S(wx,wy), h=worldH*z, w=h*(t.width/t.height), dx=sp[0]-w/2, dy=sp[1]-h;
@@ -2525,7 +2596,6 @@ function drawChannelTowers(L){
     }
   }
   // TRANSMISSION TOWERS — the power line follows the LA River. Sparse, alternating banks (set well off the concrete).
-  const twr=[IMG['river/tower0'],IMG['river/tower1'],IMG['river/tower2']].filter(Boolean);
   // ── THE LAYERING FIX (0924) ──────────────────────────────────────────────────────────────
   // These are drawn AFTER drawParcels (they had to be — an earlier pass got painted over), which
   // means they sit on top of EVERY building no matter where they stand. There is no depth sort to
@@ -2535,12 +2605,25 @@ function drawChannelTowers(L){
   // neighbouring block, so a 155-tall lattice stood straight through Taylor's Auto Parts and read as
   // glitch noise. Now they hug the concrete (just past the bank, still in the corridor), stand about
   // two thirds as tall, and carry a little transparency so they behave like background infrastructure.
-  if(twr.length){ let i=0; for(let wy=CELL*0.55; wy<WMAX; wy+=CELL*1.3, i++){
-    upright(twr[i%twr.length], x+((i&1)?1:-1)*(hT*PYLON_TOWER_K), wy, SCALE.tower, 0.80); } }
+  // TOWERS — drawn, not blitted. Walk them in order so the WIRE can be strung tower-to-tower.
+  { let prevArms=null, i=0;
+    for(let wy=CELL*0.55; wy<WMAX; wy+=CELL*1.3, i++){
+      const wx=x+((i&1)?1:-1)*(hT*PYLON_TOWER_K), sp=W2S(wx,wy), h=SCALE.tower*z;
+      const onScreen = !(sp[0]<-h||sp[0]>W+h||sp[1]<-h||sp[1]>H+h*0.4);
+      const arms = onScreen ? drawPylonTower(sp[0], sp[1], h, night, 0.88) : null;
+      if(prevArms && arms){                               // string the outer two conductors across
+        drawWire(prevArms[1], arms[0], night, 0.88);
+        drawWire(prevArms[3], arms[2], night, 0.88);
+        drawWire(prevArms[5], arms[4], night, 0.88);
+      }
+      prevArms = arms;
+    } }
   // UTILITY POLES — denser, alternating banks on the OPPOSITE phase, hugging the bank shoulder.
-  const pol=[IMG['river/pole0'],IMG['river/pole1'],IMG['river/pole2']].filter(Boolean);
-  if(pol.length){ let i=0; for(let wy=CELL*0.95; wy<WMAX; wy+=CELL*0.85, i++){
-    upright(pol[i%pol.length], x+((i&1)?-1:1)*(hT*PYLON_POLE_K), wy, SCALE.pole, 0.84); } }
+  { let i=0; for(let wy=CELL*0.95; wy<WMAX; wy+=CELL*0.85, i++){
+      const wx=x+((i&1)?-1:1)*(hT*PYLON_POLE_K), sp=W2S(wx,wy), h=SCALE.pole*z;
+      if(sp[0]<-h||sp[0]>W+h||sp[1]<-h||sp[1]>H+h*0.4) continue;
+      drawUtilityPole(sp[0], sp[1], h, night, 0.9);
+    } }
 }
 
 /* ---------- PARCELS: districts you memorize ---------- */
@@ -4592,8 +4675,6 @@ function selfTest(){
   // LA RIVER flood-channel tiles — the tiled drawChannel drawImage path (banks/floor/outlet) the empty-IMG smoke skips.
   let riv=true, rivErr='';
   const rStub={'river/floor':{width:1913,height:1050},'river/bank':{width:1063,height:1042},'river/outlet':{width:1951,height:1042},
-    'river/tower0':{width:437,height:799},'river/tower1':{width:713,height:785},'river/tower2':{width:490,height:798},
-    'river/pole0':{width:321,height:747},'river/pole1':{width:274,height:753},'river/pole2':{width:230,height:716},
     'river/debris0':{width:714,height:188},'river/debris1':{width:490,height:164},'river/debris2':{width:196,height:212},
     'river/debris3':{width:518,height:452},'river/debris4':{width:304,height:452}};
   try{ Object.assign(IMG,rStub); startRun();
