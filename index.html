@@ -797,7 +797,10 @@ function tryImg(k,src){const i=new Image();i.onload=()=>IMG[k]=i;i.src=src;}
  // tower0-2 = transmission-line pylons that flank the wash (the power line follows the LA River)
  // pole0-2 = utility poles along the banks · debris0-2 = trash/rubble on the channel floor (LA-River grime)
  'river/floor','river/bank','river/outlet','river/tower0','river/tower1','river/tower2',
- 'river/pole0','river/pole1','river/pole2','river/debris0','river/debris1','river/debris2'
+ 'river/pole0','river/pole1','river/pole2','river/debris0','river/debris1','river/debris2',
+ // debris3/4 = dumped SHOPPING CARTS (LA RIVER 2, cut 0924) — the grime the real channel is full of.
+ // Top-down compatible, unlike that sheet's bridges, which are side ELEVATIONS (see PERSPECTIVE LAW).
+ 'river/debris3','river/debris4'
 ].forEach(p=>tryImg(p,'assets/'+p+'.png'));
 const APT_SPRITES=['buildings/apt0','buildings/apt1','buildings/apt2','buildings/apt3','buildings/apt4'];
 // the SHOP POOL for GENERIC strip/plaza parcels — anonymous Valley storefronts. Selection mixes the mission
@@ -2381,7 +2384,8 @@ function drawChannelTowers(L){
     ctx.fillStyle='rgba(0,0,0,.30)'; ctx.beginPath(); ctx.ellipse(sp[0], sp[1], w*0.30, Math.max(2,3.5*z), 0, 0, 7); ctx.fill();
     ctx.drawImage(t, dx, dy, w, h); ctx.restore(); };
   // DEBRIS on the channel floor — the LA-River grime (flat piles, deterministic-by-index, culled, within the floor)
-  const dbr=[IMG['river/debris0'],IMG['river/debris1'],IMG['river/debris2']].filter(Boolean);
+  const dbr=[IMG['river/debris0'],IMG['river/debris1'],IMG['river/debris2'],
+             IMG['river/debris3'],IMG['river/debris4']].filter(Boolean);
   if(dbr.length){ let j=0;
     for(let wy=CELL*0.3; wy<WMAX; wy+=CELL*0.7, j++){
       const d=dbr[j%dbr.length], lat=(((j*7)%5)-2)/6;           // hashed lateral, kept well inside the floor (no rng)
@@ -3341,6 +3345,15 @@ function briefLine(L){
 }
 function drawChoice(){ veil(.62);
   const theater=G.choiceKind==='theater';
+  // The gig-choice beat finally shows the thing it is about. broll/phonenight (the pings stacking
+  // up on Mercury's phone) was preloaded on every boot and drawn NOWHERE — orphaned when the
+  // attract reel became a live demo. It rides as a framed INSET, not a backdrop, because both
+  // this screen and the brief deliberately keep the live Valley behind them.
+  if(!theater && IMG['broll/phonenight']){
+    const iw=W*0.34, ih=H*0.20, cx=W/2, cy=H*0.13;
+    ctx.save(); ctx.globalAlpha=.92; drawImgFit(IMG['broll/phonenight'],cx,cy,iw,ih);
+    ctx.globalAlpha=.55; ctx.strokeStyle=getCss('--gold-dim'); ctx.lineWidth=1.5;
+    ctx.strokeRect(cx-iw/2,cy-ih/2,iw,ih); ctx.restore(); }
   med(theater?"YOU'RE AT THE COURTESY":"A FARE PINGS YOUR PHONE",H*0.28,'#fff');
   if(theater){
     small("the old palace is shaking — hardcore and metal, the room loud.",H*0.28+40,getCss('--ink-dim'));
@@ -4327,7 +4340,8 @@ function selfTest(){
   const rStub={'river/floor':{width:1913,height:1050},'river/bank':{width:1063,height:1042},'river/outlet':{width:1951,height:1042},
     'river/tower0':{width:437,height:799},'river/tower1':{width:713,height:785},'river/tower2':{width:490,height:798},
     'river/pole0':{width:321,height:747},'river/pole1':{width:274,height:753},'river/pole2':{width:230,height:716},
-    'river/debris0':{width:714,height:188},'river/debris1':{width:490,height:164},'river/debris2':{width:196,height:212}};
+    'river/debris0':{width:714,height:188},'river/debris1':{width:490,height:164},'river/debris2':{width:196,height:212},
+    'river/debris3':{width:518,height:452},'river/debris4':{width:304,height:452}};
   try{ Object.assign(IMG,rStub); startRun();
     for(const li of [0,1]){ G.li=li; loadLevel(); G.mode='drive'; G.copOn=true; render(); } }   // valley levels carry the channel
   catch(e){ riv=false; rivErr=String((e&&e.message)||e); }
