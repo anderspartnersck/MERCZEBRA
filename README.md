@@ -32,6 +32,18 @@ the whole game is built around is **KEEP MOVING**.
 
 On the stage select: **click a stage**, or gas/brake to move and RIDE to select.
 
+### Jump to any level
+
+The bare link boots the **coin-op campaign** — one credit, stage 1, no skipping. To reach the
+**STAGE SELECT**, open the jailbroken MAY GRAY cab:
+
+**[▸ MERC ZEBRA — JAILBREAK / STAGE SELECT](?cab=maygray)**
+
+That roster is read straight from the level table, so it can never drift out of sync: RUN ALL
+(the whole campaign on one credit), every stage individually — including **THE COURTESY**, the
+DTLA bonus level the campaign can never reach — plus the cheat panel. Runs started from here
+deliberately **do not post to the board**.
+
 ## What still needs work
 
 - At ~600MB this is by far the heaviest bundle — it ships the full street-tile and prop set.
