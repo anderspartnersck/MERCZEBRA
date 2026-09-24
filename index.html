@@ -329,6 +329,35 @@ const MISSIONS=[
 /* ---------- world / grid config ---------- */
 const CELL=240;            // block size (world px)
 const ROADH=40;            // road half-width
+/* ---------- SCALE: ONE PROPORTION LADDER FOR THE WHOLE VALLEY ----------
+   Every drawn height used to be a magic number at its own call site — buildings extruded 4/7/9/13/16,
+   the pylons stood 104 and 74 — and nothing related them, so nothing kept them in proportion. They ARE
+   in the same unit (each is multiplied by cam.z at draw time), which is what made the drift invisible
+   and the result wrong: an APARTMENT BLOCK extruded 16 while the player's car is 25 LONG, so buildings
+   read shorter than a car, while a transmission tower at 104 stood 6.5x the tallest thing on the block.
+   That is the "those towers are pretty huge" read — the towers are only half the story; the buildings
+   were under-scaled too.
+
+   The reference is THE CAR: 25 long, 11 wide (drawCar). Everything below is expressed against it, and
+   these are STYLISED heights, not literal metres — bldgBlock's height is a fake-3D splay offset, and
+   the roof deliberately splays AWAY from screen centre so the hero car is never covered. Push these
+   too far toward realism and the playfield disappears under rooftops. So: buildings come UP toward the
+   car, the pylons come DOWN toward the buildings, and the ladder stays legible from above.
+
+   Tune proportions HERE, in one place, and never at a call site again. */
+const SCALE = {
+  car:        25,     // the reference. drawCar's V.len for the player.
+  // ── buildings (bldgBlock extrusion) ──────────────────────────────────────
+  mojaveBlock: 9,     // was 4  — a bare desert block, lowest thing that still reads as a volume
+  bungalow:   14,     // was 7  — single-storey ranch homes
+  strip:      19,     // was 9  — the strip mall: one tall storey + signage
+  plaza:      26,     // was 13 — a supermarket/plaza box, the tallest ordinary Valley building
+  apartments: 32,     // was 16 — two/three-storey courtyard complexes; now taller than the car is long
+  // ── infrastructure (upright sprite world-height) ─────────────────────────
+  pole:       46,     // was 74  — a utility pole reads ~1.5x the apartments it stands beside
+  tower:      68,     // was 104 — a transmission pylon: tallest thing in the Valley, but ~2x a
+                      //           building rather than 6.5x. Still unmistakably infrastructure.
+};
 const GRIDN=6;             // intersections per axis (5 blocks)
 const WMAX=(GRIDN-1)*CELL; // world extent 0..WMAX
 const VALLEY_SEED=20260609;// fixed Valley layout => you remember the map
@@ -2507,11 +2536,11 @@ function drawChannelTowers(L){
   // glitch noise. Now they hug the concrete (just past the bank, still in the corridor), stand about
   // two thirds as tall, and carry a little transparency so they behave like background infrastructure.
   if(twr.length){ let i=0; for(let wy=CELL*0.55; wy<WMAX; wy+=CELL*1.3, i++){
-    upright(twr[i%twr.length], x+((i&1)?1:-1)*(hT*PYLON_TOWER_K), wy, 104, 0.80); } }
+    upright(twr[i%twr.length], x+((i&1)?1:-1)*(hT*PYLON_TOWER_K), wy, SCALE.tower, 0.80); } }
   // UTILITY POLES — denser, alternating banks on the OPPOSITE phase, hugging the bank shoulder.
   const pol=[IMG['river/pole0'],IMG['river/pole1'],IMG['river/pole2']].filter(Boolean);
   if(pol.length){ let i=0; for(let wy=CELL*0.95; wy<WMAX; wy+=CELL*0.85, i++){
-    upright(pol[i%pol.length], x+((i&1)?-1:1)*(hT*PYLON_POLE_K), wy, 74, 0.84); } }
+    upright(pol[i%pol.length], x+((i&1)?-1:1)*(hT*PYLON_POLE_K), wy, SCALE.pole, 0.84); } }
 }
 
 /* ---------- PARCELS: districts you memorize ---------- */
@@ -2675,7 +2704,7 @@ function drawParcels(L){
     // DTLA: plaza/strip/apartment parcels read as TOWERS, not Valley strip-malls (BONUS_THE_COURTESY.md §7)
     if(downtown && (p.type==='plaza'||p.type==='strip'||p.type==='apartments')){ drawTower(p,sx,sy,w,h,L); continue; }
     switch(p.type){
-      case 'empty':      bldgBlock(sx,sy,w,h,L.night?'#3a3024':'#7a6747',p.v,L.night,false,4); break; // mojave bare block (low)
+      case 'empty':      bldgBlock(sx,sy,w,h,L.night?'#3a3024':'#7a6747',p.v,L.night,false,SCALE.mojaveBlock); break; // mojave bare block (low)
       case 'park':       drawPark(p,sx,sy,w,h,L); break;
       case 'lot':        drawParking(p,sx,sy,w,h,L); break;
       case 'bungalows':  drawBungalows(p,sx,sy,w,h,L); break;
@@ -2772,7 +2801,7 @@ function drawBungalows(p,sx,sy,w,h,L){ const z=cam.z, night=L.night;
   for(let r=0;r<rows;r++)for(let c=0;c<cols;c++){ k++;
     const hx=sx+m+c*(cw+m), hy=sy+m+r*(ch+m), hw=cw*0.8, hh=ch*0.72;
     const lit=((p.v*97+k*31)%10)<6;
-    bldgBlock(hx,hy,hw,hh, night?(lit?'#2a241b':'#171410'):'#'+['b9b0a0','c7bcaa','a89e8c'][k%3], p.v+k, night, lit, 7);  // ranch homes (low)
+    bldgBlock(hx,hy,hw,hh, night?(lit?'#2a241b':'#171410'):'#'+['b9b0a0','c7bcaa','a89e8c'][k%3], p.v+k, night, lit, SCALE.bungalow);  // ranch homes (low)
     ctx.strokeStyle=night?'rgba(0,0,0,.5)':'rgba(80,60,40,.45)'; ctx.lineWidth=Math.max(1,1.4*z);
     ctx.beginPath();ctx.moveTo(hx,hy+hh*0.5);ctx.lineTo(hx+hw,hy+hh*0.5);ctx.stroke(); }
 }
@@ -2782,7 +2811,7 @@ function drawApartments(p,sx,sy,w,h,L){ const z=cam.z, night=L.night, m=5*z;
   const im = (!night && z>0.7) ? IMG[APT_SPRITES[(Math.abs(p.v*101|0))%APT_SPRITES.length]] : null;
   if(im){ drawBldgSprite(im,sx,sy,w,h,p,L); }
   else {
-    bldgBlock(sx+m,sy+m,w-2*m,h-2*m, night?'#1b2030':'#'+['8c8f96','9aa0a6','7e848c'][(p.v*3|0)%3], p.v, night, true, 16);
+    bldgBlock(sx+m,sy+m,w-2*m,h-2*m, night?'#1b2030':'#'+['8c8f96','9aa0a6','7e848c'][(p.v*3|0)%3], p.v, night, true, SCALE.apartments);
     ctx.fillStyle=night?'rgba(0,0,0,.4)':'rgba(0,0,0,.22)'; ctx.fillRect(sx+m,sy+m+(h-2*m)*0.82,w-2*m,(h-2*m)*0.18); // carport
   }
 }
@@ -2843,7 +2872,7 @@ function drawStrip(p,sx,sy,w,h,L){ const z=cam.z, night=L.night;
   const sim=(!night && z>0.7) ? ((place && IMG['buildings/'+place.kind]) || shopFor(p)) : null;
   if(sim){ drawBldgSprite(sim,sx,sy,w,h,p,L); return; }
   const bh=h*0.42, bw=w*0.92, bx=sx+w*0.04, by=sy+h*0.05;
-  bldgBlock(bx,by,bw,bh, night?'#202533':'#8a8f97', p.v, night, true, 9);  // strip-mall (low-medium)
+  bldgBlock(bx,by,bw,bh, night?'#202533':'#8a8f97', p.v, night, true, SCALE.strip);  // strip-mall (low-medium)
   ctx.fillStyle=night?'rgba(255,159,28,.85)':'rgba(220,120,40,.9)'; ctx.fillRect(bx,by+bh,bw,Math.max(2,4*z)); // sign band
   ctx.strokeStyle=night?'rgba(200,200,210,.15)':'rgba(240,240,245,.42)'; ctx.lineWidth=Math.max(1,1.3*z);
   const cols=Math.max(3,(p.w/28)|0), y0=by+bh+h*0.18, y1=y0+h*0.2;
@@ -2854,7 +2883,7 @@ function drawPlaza(p,sx,sy,w,h,L){ const z=cam.z, night=L.night, m=4*z;
   const place=G.placeAt&&G.placeAt.get(p);                                     // an anchored named business can sit on a plaza parcel too
   const pim=(!night && z>0.7)?((place && IMG['buildings/'+place.kind]) || shopFor(p)):null;   // DAY: anchored business, else the per-mission pool
   if(pim){ drawBldgSprite(pim,sx,sy,w,h,p,L); return; }
-  bldgBlock(sx+m,sy+m,w-2*m,h*0.7, night?'#1d2230':'#80858d', p.v, night, true, 13);  // plaza (medium-tall)
+  bldgBlock(sx+m,sy+m,w-2*m,h*0.7, night?'#1d2230':'#80858d', p.v, night, true, SCALE.plaza);  // plaza (medium-tall)
   ctx.fillStyle=night?'rgba(66,230,255,.6)':'rgba(60,90,120,.6)'; ctx.fillRect(sx+w*0.42,sy+h*0.7,w*0.16,Math.max(2,5*z)); // entrance
 }
 // DTLA tower — a top-down Historic-Core high-rise (downtown night only). Deterministic on p.v.
