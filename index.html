@@ -2287,8 +2287,16 @@ function drawFreewayDress(L,y,half){
 // THE ON-RAMP — a merge lane climbing off the surface up onto the 101. It's the diegetic hook for the
 // missions that USE the freeway: take the ramp -> cut to the first-person endless-101 interstitial (the
 // POV DRIVE TEST / THE 101 rough build) -> drop into the next neighborhood. Render-only dressing here.
+// The ramp's street, as ONE definition the renderer and the self-test both read — so the test
+// cannot drift away from where the ramp is actually drawn.
+function rampX(){ return nearestLine(WMAX*0.52); }
 function drawOnRamp(L,y,half){
-  const z=cam.z, night=L.night, rx=WMAX*0.52, wHalf=ROADH*0.6;
+  // THE RAMP HAS TO MEET A STREET. rx was WMAX*0.52 — a raw fraction of world width, which on the
+  // 6x6 grid (CELL 240, gridlines 0/240/480/720/960/1200) puts the base at 624: ninety-six units
+  // from the nearest north-south boulevard, i.e. stranded MID-BLOCK with no way to drive onto it.
+  // Joseph's report: "the 101 on ramps are not near streets for access." Snap it to the nearest
+  // gridline so the base sits ON a real street and you can just drive north up that street into it.
+  const z=cam.z, night=L.night, rx=rampX(), wHalf=ROADH*0.6;
   const baseY=y+half+52, topY=y-half*0.12, drift=36;          // climbs up AND drifts east = a real merge
   const bl=W2S(rx-wHalf,baseY), br=W2S(rx+wHalf,baseY), tr=W2S(rx+drift+wHalf*0.7,topY), tl=W2S(rx+drift-wHalf*0.7,topY);
   ctx.fillStyle=night?'#171b24':'#33373d';                    // ramp asphalt (matches the 101 band)
@@ -4517,6 +4525,27 @@ function selfTest(){
     }
   }catch(e){ rcOK=false; rcErr=String((e&&e.message)||e); }
   ok('every level is ONE connected road network with every fare on it', rcOK, rcErr);
+  // THE 101 ON-RAMP MUST MEET A STREET. It was drawn at WMAX*0.52 — a raw fraction, which lands
+  // mid-block on the 240-unit grid, so the ramp had no road touching it ("the 101 on ramps are not
+  // near streets for access"). Assert the base sits on a drivable north-south road, on every level
+  // that actually has a freeway.
+  let rmpOK=true, rmpErr='';
+  try{
+    let checked=0;
+    for(let li=0; li<LEVELS.length; li++){
+      startRun(); G.li=li; loadLevel();
+      if(!G.freeway) continue;                      // mojave + DTLA have no 101
+      checked++;
+      const rx=rampX();                            // the renderer's own value, not a copy
+      if(Math.abs(rx-nearestLine(rx))>0.001) throw new Error(LEVELS[li].name+': ramp x is not on a gridline');
+      // the ramp base and the street under it must both be drivable
+      const baseY=G.freeway.y+ROADH*1.6+52;
+      if(!onRoad(rx, baseY)) throw new Error(LEVELS[li].name+': no road at the ramp base ('+rx+','+Math.round(baseY)+')');
+      if(!onRoad(rx, G.freeway.y)) throw new Error(LEVELS[li].name+': the ramp street does not reach the 101');
+    }
+    if(!checked) throw new Error('no level with a freeway was checked');
+  }catch(e){ rmpOK=false; rmpErr=String((e&&e.message)||e); }
+  ok('the 101 on-ramp lands on a drivable street (not mid-block)', rmpOK, rmpErr);
   // CAMERA — close & personal by default; LAY LOW eases out to the strategic survey
   let camOK=true, camErr='';
   try{ startRun(); G.li=1; loadLevel(); G.mode='drive'; keys.laylow=false;
