@@ -1832,6 +1832,7 @@ function drawScene(){
   drawClouds(L);                 // MAY GRAY sky — marine wash + drifting cloud-shadows (over ground+buildings, under the action)
   drawPeds(L);
   if(L.allgreens) drawGates();
+  drawStreetNames(L);            // the real Valley street names, painted on the asphalt — how you learn WHERE you are
   drawPlaceLabels(L);            // persistent diegetic signs over the named businesses (so the Valley reads as real places)
   drawFares(L);
   if(G.skidRun && G.exits) drawExits();
@@ -3125,19 +3126,66 @@ function drawCar(c,kind){
 // as REAL named places (Patty Melt / Penalty Box / Morale Corp…), not anonymous storefronts — reinforces the
 // route memory the anchoring buys. Render-only, culled, only when close enough to read; the business that IS the
 // current fare target is skipped (its beacon already labels it big, no double-up).
+// STREET NAMES ON THE MAP. The names already existed — MISSIONS[li].streets.ns/.ew, real Valley
+// streets, three each way — but they were only ever spoken in fare text ("RESEDA & NORDHOFF") and
+// never drawn, so the map itself was anonymous and you had no way to learn where you were. This
+// reads the SAME cornerName() mapping (ns[gx % len]), so the label on the asphalt can never disagree
+// with what the gig tells you. Deliberately quiet: painted along the centreline like real roadway
+// lettering, low alpha, zoom-gated, and only on the through-streets — the point is orientation, not
+// decoration, and the businesses stay the loud thing.
+function drawStreetNames(L){
+  const z=cam.z; if(z<0.85) return;                       // only when you are close enough to be navigating
+  const M=MISSIONS[G.li]; if(!M||!M.streets) return;
+  const ns=M.streets.ns||[], ew=M.streets.ew||[];
+  if(!ns.length && !ew.length) return;
+  ctx.save(); ctx.textAlign='center'; ctx.font='bold '+Math.round(10*Math.min(1.5,z))+'px "Courier New",monospace';
+  // a thin dark stroke under the letters: the asphalt runs from pale concrete to dark tarmac, and
+  // plain light text vanishes on the light tiles. Outline first, fill over it.
+  ctx.lineWidth=Math.max(2,2.4*z); ctx.strokeStyle='rgba(10,12,16,.38)';
+  ctx.fillStyle='rgba(240,236,224,.46)';
+  for(let g=0; g<GRIDN; g++){
+    // EAST-WEST streets: lettering runs along the road, repeated a couple of times per map
+    if(ew.length){ const name=ew[g%ew.length].toUpperCase(), wy=g*CELL;
+      for(let k=1;k<GRIDN;k+=2){ const wx=(k+0.5)*CELL, [sx,sy]=W2S(wx,wy);
+        if(sx<-120||sx>W+120||sy<-20||sy>H+20) continue;
+        ctx.strokeText(name, sx, sy+3); ctx.fillText(name, sx, sy+3); } }
+    // NORTH-SOUTH streets: same, rotated to run with the road
+    if(ns.length){ const name=ns[g%ns.length].toUpperCase(), wx=g*CELL;
+      for(let k=1;k<GRIDN;k+=2){ const wy=(k+0.5)*CELL, [sx,sy]=W2S(wx,wy);
+        if(sx<-20||sx>W+20||sy<-120||sy>H+120) continue;
+        ctx.save(); ctx.translate(sx,sy); ctx.rotate(-Math.PI/2);
+        ctx.strokeText(name,0,3); ctx.fillText(name,0,3); ctx.restore(); } }
+  }
+  ctx.restore(); ctx.textAlign='left';
+}
 function drawPlaceLabels(L){
   if(!G.places||!G.places.length) return;
   const z=cam.z; if(z<0.72) return;                            // hide when zoomed out (survey) -> no clutter
   let activeKind=null; const f=G.fares[G.fareIdx];             // the active fare's place already carries a beacon label
   if(f&&f.phase!=='done'){ const t=f.phase==='pickup'?f.pickup:f.drop; activeKind=t&&t.place||null; }
   ctx.save(); ctx.textAlign='center'; ctx.font='bold 9px "Courier New",monospace';
+  // Labels used to be stamped at each parcel's centre with NO collision check, so two businesses on
+  // neighbouring blocks printed their plaques on the same pixels and BOTH became unreadable (Joseph
+  // hit this on Valley Village). Places are fixed by seed, so this is not a rare overlap — it is the
+  // same two labels colliding every single time you drive that map. Keep the plaques where they
+  // belong and LIFT a colliding one clear, stacking upward; drop it only if it cannot be placed.
+  const placed=[];
+  const clash=(x0,y0,x1,y1)=>placed.some(r=>!(x1<r[0]||x0>r[2]||y1<r[1]||y0>r[3]));
   for(const pl of G.places){
     if(pl.kind===activeKind) continue;
     const P=pl.parcel, im=IMG['buildings/'+pl.kind];           // the storefront is bottom-aligned in the parcel (drawBldgSprite: dy=sy+h-dh)
     const topWorldY = im ? (P.y0+P.h-(P.w*1.04)*(im.height/im.width)) : P.y0;   // -> put the plaque just above the SPRITE, not the empty apron
     const [sx,topY]=W2S(P.cx, topWorldY);
     if(sx<-60||sx>W+60||topY<-8||topY>H+8) continue;
-    const label=(pl.label||'').toUpperCase(), pw=(ctx.measureText(label).width||label.length*5.4)+10, py=topY-5;
+    const label=(pl.label||'').toUpperCase(), pw=(ctx.measureText(label).width||label.length*5.4)+10;
+    let py=topY-5, tries=0;
+    while(clash(sx-pw/2, py-11, sx+pw/2, py+3) && tries<6){ py-=16; tries++; }   // lift clear of the one already there
+    if(tries>=6) continue;                                      // nowhere legible to put it — better absent than mush
+    placed.push([sx-pw/2, py-11, sx+pw/2, py+3]);
+    if(py<topY-6){                                              // it was lifted: a leader line back to its own block
+      ctx.globalAlpha=0.35; ctx.strokeStyle='rgba(242,226,184,.9)'; ctx.lineWidth=1;
+      ctx.beginPath(); ctx.moveTo(sx, py+3); ctx.lineTo(sx, topY-4); ctx.stroke();
+    }
     ctx.globalAlpha=0.82; ctx.fillStyle='rgba(8,10,14,.62)'; rr(sx-pw/2, py-11, pw, 14, 3); ctx.fill();
     ctx.globalAlpha=0.9;  ctx.fillStyle=pl.kind==='cityseams'?getCss('--cyan'):'rgba(242,226,184,.95)';
     ctx.fillText(label, sx, py);
