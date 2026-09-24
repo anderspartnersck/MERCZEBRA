@@ -2106,6 +2106,42 @@ function drawValleyEdges(L){
     mz.addColorStop(0,night?'#0b0e16':'#aeb6bd'); mz.addColorStop(1,night?'rgba(11,14,22,0)':'rgba(174,182,189,0)');
     ctx.fillStyle=mz; ctx.fillRect(0,0,W,syN);
   }
+  drawSideEdges(L, night, mojave, downtown);           // ...and the EAST/WEST boundaries, which had nothing
+}
+// The EAST and WEST boundaries. drawValleyEdges only ever treated north and south, so pulling the
+// camera toward either side — which LAY LOW does constantly — showed a flat gray void where the
+// Valley should keep going. (Reported from a Northridge survey: the whole west half of the frame.)
+// The Valley really does continue east/west, so these read as SPRAWL receding into the marine layer:
+// a haze wash off the boundary, then dim blocks thinning out with distance. No ridgeline — you are
+// looking ALONG the valley floor here, not at its rim. Deterministic, render-only, culled.
+function drawSideEdges(L, night, mojave, downtown){
+  const z=cam.z;
+  const sides=[[W2S(0,cam.y)[0], -1], [W2S(WMAX,cam.y)[0], 1]];   // [screen x of the boundary, outward dir]
+  for(const [bx, dir] of sides){
+    const span = dir<0 ? bx : W-bx;                                // how much void is showing on this side
+    if(span<=8) continue;
+    const x0 = dir<0 ? 0 : bx, x1 = dir<0 ? bx : W;
+    const g=ctx.createLinearGradient(dir<0?x0:x1, 0, dir<0?x1:x0, 0);
+    if(mojave){ g.addColorStop(0,night?'#171208':'#c9a271'); g.addColorStop(1,night?'#2a2113':'#dcbb8c'); }
+    else if(downtown){ g.addColorStop(0,'#0a0812'); g.addColorStop(1,'#1c1830'); }
+    else if(night){ g.addColorStop(0,'#080b12'); g.addColorStop(1,'#141a27'); }
+    else { g.addColorStop(0,'#98a3ae'); g.addColorStop(1,'#bcc3ca'); }
+    ctx.fillStyle=g; ctx.fillRect(x0,0,x1-x0,H);
+    if(mojave || span<40) continue;                                // open desert stays bare; tiny slivers skip the blocks
+    // dim sprawl blocks, thinning as they recede from the boundary (atmospheric perspective)
+    ctx.save();
+    for(let i=0;i<70;i++){
+      const t=((i*0.61803)%1);                                     // golden-ratio scatter — deterministic, no rng
+      const d=t*t*span;                                            // bunch near the boundary, thin out far away
+      const px = bx + dir*(6+d);
+      const py = ((i*97)%H) + ((i*37)%29);
+      const bw = Math.max(2, (10 - 8*t)*z), bh = Math.max(2, (7 - 5*t)*z);
+      ctx.globalAlpha = 0.30*(1-t);
+      ctx.fillStyle = night?'#5c6f8f':'#7d8794';
+      ctx.fillRect(px, py, bw, bh);
+    }
+    ctx.restore();
+  }
 }
 // The north rim, mirrored from drawRidge: the fill hangs DOWN from the top of the frame to the ridge
 // line instead of rising from a base. Two ranges, the farther one flatter and paler — atmospheric
@@ -2433,13 +2469,18 @@ function drawChannel(L){
 // transmission TOWERS flanking the wash — the power line follows the LA River. Deterministic (index-stepped,
 // no rng), alternating banks, culled. Elevation silhouettes anchored at the base, rising up-screen (like the
 // buildings). Drawn AFTER the parcels/dressing layer (in render order) so the flanking parcels don't cover them.
+// Lateral offsets for the wash's infrastructure, as ONE definition the renderer and the self-test
+// both read. They are expressed as multiples of the channel half-width so the pylons stay inside the
+// CHANNEL CORRIDOR — the only strip of map with no parcel under it — which is what keeps them from
+// drawing on top of a storefront (they render after drawParcels and cannot be depth-sorted).
+const PYLON_TOWER_K = 1.12, PYLON_POLE_K = 0.95;
 function drawChannelTowers(L){
   if(!(streetTilesOn() && (IMG['river/tower0']||IMG['river/pole0']||IMG['river/debris0']))) return;
   const ch=G.channel, z=cam.z, night=L.night, x=ch.x, hT=ROADH*1.15, hF=ROADH*0.5;
   // an upright elevation prop anchored at its base on the ground, rising up-screen (like the buildings), culled + base-shadow.
-  const upright=(t,wx,wy,worldH)=>{ const sp=W2S(wx,wy), h=worldH*z, w=h*(t.width/t.height), dx=sp[0]-w/2, dy=sp[1]-h;
+  const upright=(t,wx,wy,worldH,alpha)=>{ const sp=W2S(wx,wy), h=worldH*z, w=h*(t.width/t.height), dx=sp[0]-w/2, dy=sp[1]-h;
     if(sp[0]<-w||sp[0]>W+w||sp[1]<-h||sp[1]>H+h*0.3) return;
-    ctx.save(); if(night) ctx.globalAlpha=0.92;
+    ctx.save(); ctx.globalAlpha=(alpha==null?1:alpha)*(night?0.92:1);
     ctx.fillStyle='rgba(0,0,0,.30)'; ctx.beginPath(); ctx.ellipse(sp[0], sp[1], w*0.30, Math.max(2,3.5*z), 0, 0, 7); ctx.fill();
     ctx.drawImage(t, dx, dy, w, h); ctx.restore(); };
   // DEBRIS on the channel floor — the LA-River grime (flat piles, deterministic-by-index, culled, within the floor)
@@ -2455,12 +2496,21 @@ function drawChannelTowers(L){
   }
   // TRANSMISSION TOWERS — the power line follows the LA River. Sparse, alternating banks (set well off the concrete).
   const twr=[IMG['river/tower0'],IMG['river/tower1'],IMG['river/tower2']].filter(Boolean);
+  // ── THE LAYERING FIX (0924) ──────────────────────────────────────────────────────────────
+  // These are drawn AFTER drawParcels (they had to be — an earlier pass got painted over), which
+  // means they sit on top of EVERY building no matter where they stand. There is no depth sort to
+  // appeal to here, so the only honest fix is to stop them overlapping a parcel in the first place:
+  // keep them inside the CHANNEL CORRIDOR, which is the one strip of map that carries no parcel.
+  // They were at hT+ROADH*2.7 ≈ 154 world units off the wash — with CELL 240 that is deep into the
+  // neighbouring block, so a 155-tall lattice stood straight through Taylor's Auto Parts and read as
+  // glitch noise. Now they hug the concrete (just past the bank, still in the corridor), stand about
+  // two thirds as tall, and carry a little transparency so they behave like background infrastructure.
   if(twr.length){ let i=0; for(let wy=CELL*0.55; wy<WMAX; wy+=CELL*1.3, i++){
-    upright(twr[i%twr.length], x+((i&1)?1:-1)*(hT+ROADH*2.7), wy, 155); } }
-  // UTILITY POLES — denser, alternating banks on the OPPOSITE phase, set off the bank shoulder so they read.
+    upright(twr[i%twr.length], x+((i&1)?1:-1)*(hT*PYLON_TOWER_K), wy, 104, 0.80); } }
+  // UTILITY POLES — denser, alternating banks on the OPPOSITE phase, hugging the bank shoulder.
   const pol=[IMG['river/pole0'],IMG['river/pole1'],IMG['river/pole2']].filter(Boolean);
   if(pol.length){ let i=0; for(let wy=CELL*0.95; wy<WMAX; wy+=CELL*0.85, i++){
-    upright(pol[i%pol.length], x+((i&1)?-1:1)*(hT+ROADH*1.7), wy, 102); } }
+    upright(pol[i%pol.length], x+((i&1)?-1:1)*(hT*PYLON_POLE_K), wy, 74, 0.84); } }
 }
 
 /* ---------- PARCELS: districts you memorize ---------- */
@@ -2747,16 +2797,35 @@ function drawApron(p,sx,sy,w,ah,L){
   if(ah<6) return; const z=cam.z, night=L.night;
   ctx.fillStyle=night?'#15181f':'#4f5359'; ctx.fillRect(sx,sy,w,ah);
   if(z<=0.7) return;                                     // survey pull-back keeps it clean
+  const stalls=Math.max(3,(p&&p.w?(p.w/24)|0:5)), step=w/stalls;
   ctx.save();
   ctx.strokeStyle=night?'rgba(200,205,215,.10)':'rgba(240,240,245,.26)';
   ctx.lineWidth=Math.max(1,1.2*z);
-  const stalls=Math.max(3,(p&&p.w?(p.w/24)|0:5)), step=w/stalls;
   ctx.beginPath();
   for(let i=1;i<stalls;i++){ const x=sx+i*step; ctx.moveTo(x,sy+ah*0.20); ctx.lineTo(x,sy+ah*0.80); }
   ctx.stroke();
   ctx.fillStyle=night?'rgba(150,155,165,.16)':'rgba(232,234,240,.32)';   // curb at the building line
   ctx.fillRect(sx,sy+ah-Math.max(1,2*z),w,Math.max(1,2*z));
   ctx.restore();
+  // PARK SOME CARS IN IT. The storefront sprites scale to parcel WIDTH, so a tall parcel leaves an
+  // apron that can be 80% of the block — stall stripes alone still read as a big empty slab (that is
+  // what Taylor's Auto Parts looked like). The top-down car props already exist, so fill a few stalls.
+  // Deterministic off the parcel's own v, no rng, and only when there is real room + real zoom.
+  if(ah < 18*z || stalls < 3) return;
+  const fleet=[IMG['world/car'],IMG['world/car1'],IMG['world/car2']].filter(Boolean);
+  if(!fleet.length) return;
+  const seed=((p&&p.v)||0.37)*1000|0;
+  const rows = ah > 46*z ? 2 : 1;
+  for(let r=0;r<rows;r++){
+    const rowY = sy + ah*(rows===1 ? 0.52 : (r?0.70:0.30));
+    for(let i=0;i<stalls;i++){
+      if(((seed + i*7 + r*13) % 5) < 2) continue;                    // leave gaps — a full lot reads fake
+      const im=fleet[(seed + i*3 + r) % fleet.length];
+      const cw=Math.min(step*0.66, 13*z), ch=cw*(im.height/im.width);
+      const cx=sx + (i+0.5)*step;
+      ctx.drawImage(im, cx-cw/2, rowY-ch/2, cw, ch);
+    }
+  }
 }
 function drawBldgSprite(im,sx,sy,w,h,p,L){ const z=cam.z;
   const scale=(w*1.04)/im.width, dw=im.width*scale, dh=im.height*scale;
@@ -4580,6 +4649,30 @@ function selfTest(){
     if(!checked) throw new Error('no level with a freeway was checked');
   }catch(e){ rmpOK=false; rmpErr=String((e&&e.message)||e); }
   ok('the 101 on-ramp lands on a drivable street (not mid-block)', rmpOK, rmpErr);
+  // THE WASH'S PYLONS MUST STAY OFF THE BLOCKS. drawChannelTowers runs AFTER drawParcels, so anything
+  // it draws sits on top of every building regardless of depth — there is no depth sort to appeal to.
+  // They used to stand 154 world units off the channel (CELL is 240), i.e. deep inside the neighbouring
+  // parcel, so a lattice tower drew straight through a storefront. Assert they stay within the channel
+  // corridor, the one strip with no parcel under it.
+  let pyOK=true, pyErr='';
+  try{
+    const ci=LEVELS.findIndex(l=>!l.bonus && l.zone==='valley');
+    startRun(); G.li=ci<0?0:ci; loadLevel();
+    if(!G.channel) throw new Error('no flood channel on a valley level');
+    const hT=ROADH*1.15, corridor=ROADH*1.45;          // the parcel-free margin around the wash
+    for(const k of [PYLON_TOWER_K, PYLON_POLE_K]){
+      const off=hT*k;
+      if(!(off>0)) throw new Error('pylon offset is not positive');
+      if(off>corridor) throw new Error('pylon stands '+off.toFixed(0)+' off the wash — past the '+corridor.toFixed(0)+' corridor, i.e. on a block');
+      // and the spot must not be inside a building parcel
+      const px=G.channel.x+off;
+      for(const pc of G.parcels){
+        if(pc.type==='lot'||pc.type==='park'||pc.type==='empty') continue;
+        if(px>pc.x0 && px<pc.x0+pc.w) throw new Error('pylon x falls inside a '+pc.type+' parcel');
+      }
+    }
+  }catch(e){ pyOK=false; pyErr=String((e&&e.message)||e); }
+  ok('the channel pylons stay in the wash corridor (never over a storefront)', pyOK, pyErr);
   // CAMERA — close & personal by default; LAY LOW eases out to the strategic survey
   let camOK=true, camErr='';
   try{ startRun(); G.li=1; loadLevel(); G.mode='drive'; keys.laylow=false;
