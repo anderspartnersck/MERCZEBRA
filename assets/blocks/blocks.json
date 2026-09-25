@@ -1,0 +1,104 @@
+{
+ "res": 512,
+ "blocks": {
+  "apartments": [
+   "apartments_tl2.png",
+   "apartments_tr1.png",
+   "apartments_br1.png",
+   "apartments_wd5.png"
+  ],
+  "lot": [
+   "lot_tl3.png",
+   "lot_bl3.png",
+   "lot_bl4.png"
+  ],
+  "strip": [
+   "strip_tl4.png",
+   "strip_tl5.png",
+   "strip_bl5.png"
+  ],
+  "park": [
+   "park_tr0.png",
+   "park_br0.png",
+   "park_wd3.png",
+   "park_wd4.png",
+   "park_wd6.png"
+  ],
+  "plaza": [
+   "plaza_bl2.png"
+  ],
+  "bungalows": [
+   "bungalows_br2.png",
+   "bungalows_br3.png",
+   "bungalows_wd7.png",
+   "bungalows_wd8.png"
+  ]
+ },
+ "pois": [
+  {
+   "src": "tl",
+   "u": 0.4847,
+   "v": 0.656,
+   "w": 0.0736,
+   "h": 0.1348
+  },
+  {
+   "src": "tr",
+   "u": 0.7144,
+   "v": 0.5959,
+   "w": 0.0677,
+   "h": 0.1201
+  },
+  {
+   "src": "bl",
+   "u": 0.6743,
+   "v": 0.7797,
+   "w": 0.0788,
+   "h": 0.0947
+  },
+  {
+   "src": "br",
+   "u": 0.5466,
+   "v": 0.1929,
+   "w": 0.082,
+   "h": 0.0938
+  },
+  {
+   "src": "br",
+   "u": 0.4237,
+   "v": 0.8682,
+   "w": 0.0671,
+   "h": 0.1025
+  },
+  {
+   "src": "wd",
+   "u": 0.3331,
+   "v": 0.2533,
+   "w": 0.0467,
+   "h": 0.0458
+  },
+  {
+   "src": "wd",
+   "u": 0.5609,
+   "v": 0.3595,
+   "w": 0.0523,
+   "h": 0.0458
+  },
+  {
+   "src": "wd",
+   "u": 0.5085,
+   "v": 0.6726,
+   "w": 0.0491,
+   "h": 0.0378
+  }
+ ],
+ "freeway": [
+  "fwy_tl0.png",
+  "fwy_tl1.png",
+  "fwy_bl0.png",
+  "fwy_bl1.png",
+  "fwy_wd0.png",
+  "fwy_wd1.png",
+  "fwy_wd2.png"
+ ]
+}

@@ -272,7 +272,7 @@ let W=720, H=900;   // VIRTUAL render units — set by applyViewport() below (H 
 /* ---------- levels ---------- */
 // zone: valley | haul | mojave   night: dark+neon
 const LEVELS=[
-  {name:'NORTHRIDGE',        zone:'valley', time:120, fares:3, night:false, traffic:5, topMph:120},
+  {name:'NORTHRIDGE',        zone:'valley', time:120, fares:3, night:false, traffic:5, topMph:120, aerial:true, fwy:'405'},   // aerial = Joe's top-down block art. fwy ONLY renames the shield: the engine's freeway is still the NORTH-edge horizontal run (buildParcels sets axis:'h'), while Joe's art shows the 405 down the WEST edge. A west-edge freeway needs a vertical path in drawFreeway, which does not exist yet.
   {name:'ENCINO',            zone:'valley', time:115, fares:4, night:false, traffic:6, topMph:125, parked:true},  // double-parked cars — weave the clogged blvd
   {name:'VALLEY VILLAGE',    zone:'valley', time:110, fares:4, night:false, traffic:7, topMph:125, closed:true},  // ROAD CLOSED blocks — reroute around the barricades
   {name:'NORTH HOLLYWOOD',   zone:'valley', time:105, fares:5, night:false, traffic:8, topMph:128, filmshoot:true},  // a ROVING film-shoot closure — adapt, route-memory won't save you
@@ -865,6 +865,30 @@ function tryImg(k,src){const i=new Image();i.onload=()=>IMG[k]=i;i.src=src;}
  // Top-down compatible, unlike that sheet's bridges, which are side ELEVATIONS (see PERSPECTIVE LAW).
  'river/debris3','river/debris4'
 ].forEach(p=>tryImg(p,'assets/'+p+'.png'));
+
+/* ---------- AERIAL BLOCKS — Joe's top-down NORTHRIDGE renders as PARCEL FILL ----------
+   The five renders are five INDEPENDENT generations, not one map sliced up (quad-vs-wide
+   NCC 0.07-0.25; a true crop scores >0.9) and each has its own irregular street grid. So
+   they can't be mosaicked into a continuous city and can't be warped onto the CELL=240
+   grid without visible distortion. What they ARE is perfect plan-view BLOCK art — so the
+   engine keeps owning the roads (crisp, procedural, aligned) and the art owns what sits
+   INSIDE a block. PERSPECTIVE LAW holds: top-down art on a top-down surface.
+   Cut + hand-labelled by tools/cut_map_blocks.py (+ tools/block_labels.json).
+   Every slot keeps its procedural fallback — a missing PNG is never a blocker. */
+const AERIAL_BLOCKS={apartments:["apartments_br1","apartments_tl2","apartments_tr1","apartments_wd5"], bungalows:["bungalows_br2","bungalows_br3","bungalows_wd7","bungalows_wd8"], lot:["lot_bl3","lot_bl4","lot_tl3"], park:["park_br0","park_tr0","park_wd3","park_wd4","park_wd6"], plaza:["plaza_bl2"], strip:["strip_bl5","strip_tl4","strip_tl5"]};
+Object.values(AERIAL_BLOCKS).forEach(a=>a.forEach(n=>tryImg('blocks/'+n,'assets/blocks/'+n+'.png')));
+// NO ZOOM GATE. cam.z bottoms out at 0.70 (LAY LOW) and tops at ~3.0, so a 240-unit parcel is
+// never smaller than 168px on screen — the 512px block art reads at every zoom the camera can
+// actually reach. A z-gate here would be a rule that never fires (cf. the OIL audit: dead rules
+// are the expensive kind of complexity — read every time, used never).
+function aerialOn(){ return !/[?&]aerial=0/.test(location.search); }
+// pick deterministically off the parcel's own seed so a block never shimmers between frames
+function aerialFor(p){
+  if(!aerialOn()) return null;
+  const L=G.level; if(!L||!L.aerial) return null;            // per-level opt-in (NORTHRIDGE today)
+  const set=AERIAL_BLOCKS[p.type]; if(!set||!set.length) return null;
+  return IMG['blocks/'+set[Math.abs(p.v*61+((p.x0/CELL)|0)*7+((p.y0/CELL)|0)*13|0)%set.length]]||null;
+}
 const APT_SPRITES=['buildings/apt0','buildings/apt1','buildings/apt2','buildings/apt3','buildings/apt4'];
 // the SHOP POOL for GENERIC strip/plaza parcels — anonymous Valley storefronts. Selection mixes the mission
 // index so the shops you pass change every mission (render-only). The NAMED Anders places (Patty Melt / Penalty
@@ -2414,7 +2438,7 @@ function drawFreewayDress(L,y,half){
     ctx.fillStyle=night?'#0b3a1f':'#1f7a43'; ctx.fillRect(px,py,pw,ph);
     ctx.strokeStyle='rgba(240,240,240,.75)'; ctx.lineWidth=Math.max(1,z); ctx.strokeRect(px,py,pw,ph);
     if(z>0.85){ ctx.fillStyle='#fff'; ctx.font='bold '+Math.round(8*z)+'px "Courier New",monospace';
-      ctx.textAlign='center'; ctx.fillText('101', px+pw/2, py+ph*0.72); ctx.textAlign='left'; }
+      ctx.textAlign='center'; ctx.fillText((G.level&&G.level.fwy)||'101', px+pw/2, py+ph*0.72); ctx.textAlign='left'; }
   }
   drawOnRamp(L,y,half);                                       // the diegetic hook up to the endless first-person 101
 }
@@ -2815,6 +2839,16 @@ function drawParcels(L){
     if(sx+w<0||sy+h<0||sx>W||sy>H) continue;
     // DTLA: plaza/strip/apartment parcels read as TOWERS, not Valley strip-malls (BONUS_THE_COURTESY.md §7)
     if(downtown && (p.type==='plaza'||p.type==='strip'||p.type==='apartments')){ drawTower(p,sx,sy,w,h,L); continue; }
+    // AERIAL BLOCK — Joe's real top-down art fills the parcel when we're zoomed in far enough
+    // to read it. Roads/crosswalks/street-names still draw OVER this (later in drawScene), which
+    // is the "sweetening" — photographic blocks, crisp engine paint. Falls through to the
+    // procedural drawer whenever the art is absent, zoomed out, or ?aerial=0.
+    const aim=aerialFor(p);
+    if(aim){
+      ctx.drawImage(aim,sx,sy,w,h);
+      if(L.night){ ctx.fillStyle='rgba(10,14,26,.72)'; ctx.fillRect(sx,sy,w,h); }     // May-gray night wash
+      continue;
+    }
     switch(p.type){
       case 'empty':      bldgBlock(sx,sy,w,h,L.night?'#3a3024':'#7a6747',p.v,L.night,false,SCALE.mojaveBlock); break; // mojave bare block (low)
       case 'park':       drawPark(p,sx,sy,w,h,L); break;
@@ -3225,6 +3259,44 @@ const VEH={
   repo:    {len:30, wid:12.5, roof:0.26, roofAt:-0.30, repo:1, flat:1, body:'#5b4a2e'}, // Jackie's grimy rig
   military:{len:27, wid:13.5, roof:0.40, roofAt:0.0,  body:'#4b5331'},                  // olive Humvee (THE LAST RIDE)
 };
+/* ---------- SPRITE FIT — draw each vehicle at ITS OWN aspect, contained in its gameplay box ----------
+   THE BUG THIS REPLACES (2026-09-25, Joe: "the cars were a little fat"): every sprite was drawn
+   with the same blanket padding multipliers, iw = wid*1.7 and ih = len*1.15. Those roughly match
+   the transparent margin baked into the TRAFFIC canvases (x1.55, y1.15) — but player_zebra.png has
+   NO margin at all, so the player got the same inflation with nothing to absorb it. Its art is
+   2.78:1 and it was being squashed into a 1.54:1 box: the zebra was drawn ~80% too wide.
+
+   The map scale is NOT the problem and was checked first. A parking stall in the aerial block art
+   measures 36px of 512 across a 240-unit block = 16.9 units, and a US stall is 2.6m — so one world
+   unit is 0.154m, which makes the player's 25x11 box 3.85m x 1.69m. That is a Corvette. The
+   geometry was right; only the draw was wrong.
+
+   [canvasW, canvasH, contentX, contentY, contentW, contentH] measured off the alpha, baked in
+   because getImageData on a file:// page throws SecurityError — we cannot measure at runtime.
+   Regenerate after recutting any vehicle sprite. */
+const SPRITE_FIT={
+  'traffic/boxtruck':[367,644,65,42,237,561],
+  'traffic/cop':[326,442,58,29,211,385],
+  'traffic/military':[367,497,65,32,237,433],
+  'traffic/minivan':[354,515,63,33,228,449],
+  'traffic/pickup':[326,497,58,32,211,433],
+  'traffic/player_zebra':[623,1733,0,0,623,1733],
+  'traffic/repo':[340,552,60,36,220,481],
+  'traffic/sedan':[326,442,58,29,211,385],
+  'traffic/suv':[354,478,63,31,228,417],
+  'traffic/towtruck':[326,534,58,35,211,465],
+  'traffic/van':[354,570,63,37,228,497],
+};
+// CONTAIN the art in the gameplay box: scale so the sprite's CONTENT fits inside wid x len without
+// exceeding either axis, keeping the authored aspect. Never fatter and never longer than the box the
+// sim actually collides with. Returns the full-canvas draw rect, offset so the content sits centred.
+function spriteRect(key, wid, len){
+  const f=SPRITE_FIT[key];
+  if(!f) return [-wid/2, -len/2, wid, len];            // unmeasured sprite: fall back to the plain box
+  const cw=f[0], ch=f[1], bx=f[2], by=f[3], bw=f[4], bh=f[5];
+  const k=Math.min(wid/bw, len/bh);                    // contain
+  return [-(bx+bw/2)*k, -(by+bh/2)*k, cw*k, ch*k];
+}
 const VEHPAL=['#9aa0a6','#c9c3b3','#6b727c','#aeb2b6','#b9bcc0','#4a515a'];   // muted Valley colors
 function drawCar(c,kind){
   const [sx,sy]=W2S(c.x,c.y); const z=cam.z;
@@ -3239,11 +3311,11 @@ function drawCar(c,kind){
   if(isP && c.shake){ ctx.translate((Math.random()-.5)*c.shake*5,(Math.random()-.5)*c.shake*5); c.shake=Math.max(0,c.shake-(rdt>0?3.0*rdt:0.05)); }   // decay by REAL frame time (was per-frame -0.05 → faster at high refresh); render-only, sim never reads shake
   ctx.fillStyle='rgba(0,0,0,.32)'; rr(-wid/2+2,-len/2+3,wid,len,3*z); ctx.fill();   // shadow
   const useSprite = isP ? (heroSpriteOn() && IMG['traffic/player_zebra']) : (spriteFleetOn() && IMG['traffic/'+kind]);
-  if(useSprite){ const im=IMG['traffic/'+(isP?'player_zebra':kind)], iw=wid*1.7, ih=len*1.15;
+  if(useSprite){ const key='traffic/'+(isP?'player_zebra':kind), im=IMG[key], R=spriteRect(key, wid, len);
     if(isP){ const gg=ctx.createRadialGradient(0,0,2,0,0,len*0.95);   // SHOWY hero glow — the brightest thing in frame
       gg.addColorStop(0,'rgba(255,45,158,.45)'); gg.addColorStop(.6,'rgba(123,90,255,.18)'); gg.addColorStop(1,'rgba(255,45,158,0)');
       ctx.fillStyle=gg; ctx.beginPath(); ctx.arc(0,0,len*0.95,0,7); ctx.fill(); }
-    ctx.drawImage(im,-iw/2,-ih/2,iw,ih); ctx.restore(); return; }
+    ctx.drawImage(im,R[0],R[1],R[2],R[3]); ctx.restore(); return; }
   if(isP){                                                         // THE ZEBRA — the brightest thing in frame
     ctx.fillStyle='#0b0b0b'; rr(-wid/2,-len/2,wid,len,3*z); ctx.fill();
     ctx.save(); rr(-wid/2,-len/2,wid,len,3*z); ctx.clip(); ctx.strokeStyle='#fff'; ctx.lineWidth=Math.max(1,2.6*z);
@@ -5127,6 +5199,51 @@ function selfTest(){
        loaded && fpGated===fpNone, 'cityNone '+cityNone+' fpEq '+(fpGated===fpNone));
     if(typeof window!=='undefined') window.CITY_PRESETS=saved; G.li=savedLi; loadLevel();
   })();
+
+  // ---- SPRITE FIT (the cars were drawn fat) ----
+  (function(){
+    for(const k in SPRITE_FIT){ const f=SPRITE_FIT[k];
+      ok('SPRITE_FIT '+k+' content box sits inside its canvas',
+         f[2]>=0 && f[3]>=0 && f[2]+f[4]<=f[0] && f[5]+f[3]<=f[1], JSON.stringify(f)); }
+    // CONTAIN means the art may never draw wider OR longer than the box the sim collides with.
+    let worst=0, who='';
+    for(const k in SPRITE_FIT){
+      const R=spriteRect(k, 11, 25), f=SPRITE_FIT[k], sc=R[2]/f[0];
+      const cw=f[4]*sc, ch=f[5]*sc;
+      if(cw>11.001||ch>25.001){ worst=1; who=k+' '+cw.toFixed(2)+'x'+ch.toFixed(2); }
+    }
+    ok('every sprite is CONTAINED by its gameplay box (never fatter, never longer)', !worst, who);
+    // the regression itself: the zebra must not come back squashed toward square
+    const f=SPRITE_FIT['traffic/player_zebra'], R=spriteRect('traffic/player_zebra', 11, 25);
+    const sc=R[2]/f[0], drawnAspect=(f[5]*sc)/(f[4]*sc);
+    ok('the zebra keeps its authored 2.78:1 proportion (was drawn 1.54:1 — 80% too wide)',
+       Math.abs(drawnAspect-2.78)<0.03, 'drawn '+drawnAspect.toFixed(2)+':1');
+  })();
+
+  // ---- AERIAL BLOCKS (Joe's top-down NORTHRIDGE art as parcel fill) ----
+  (function(){
+    const TYPES=['empty','park','lot','bungalows','apartments','plaza','strip'];
+    const keys=Object.keys(AERIAL_BLOCKS);
+    ok('aerial block sets all name a REAL parcel type (a typo here fails silently — the art just never draws)',
+       keys.length>0 && keys.every(k=>TYPES.indexOf(k)>=0), 'keys '+keys.join(','));
+    ok('every aerial set is non-empty', keys.every(k=>AERIAL_BLOCKS[k].length>0));
+
+    const savedLi=G.li;
+    G.li=0; loadLevel();
+    ok('NORTHRIDGE opts into the aerial art and flies the 405 (not the 101)',
+       LEVELS[0].aerial===true && LEVELS[0].fwy==='405', 'aerial '+LEVELS[0].aerial+' fwy '+LEVELS[0].fwy);
+    const p0=G.parcels[0];
+    // the picker must be DETERMINISTIC — a parcel that shimmers between blocks frame to frame
+    // would break route memory, which is the whole point of a fixed grid.
+    const a=aerialFor(p0), b=aerialFor(p0);
+    ok('aerial pick is deterministic per parcel', a===b);
+    // …and a level that hasn't opted in must get nothing, so the procedural drawers still run
+    const li1=LEVELS.findIndex(l=>!l.aerial);
+    if(li1>=0){ G.li=li1; loadLevel();
+      ok('a level without aerial:true gets no block art (procedural fallback intact)',
+         G.parcels.every(p=>aerialFor(p)===null)); }
+    G.li=savedLi; loadLevel();
+  })();
   resetCabs();   // leave engine clean for any later checks
   return R;
 }
@@ -5157,6 +5274,9 @@ function setupScene(name){   // dev QA seek — jump straight to a screen for sc
     case 'travel': go(4,'brief'); startTravel(); G.travelT=TRAVEL_SEC*0.45; break;   // the 101 cruise to the next neighborhood (BURBANK = a night arrival)
     case 'travel-day': go(1,'brief'); startTravel(); G.travelT=TRAVEL_SEC*0.45; break; // day arrival (ENCINO)
     case 'drive': go(1,'drive'); break;
+    case 'drive-aerial': go(0,'drive'); break;                                        // NORTHRIDGE — Joe's top-down block art in the parcels
+    case 'drive-aerial-survey': go(0,'drive'); keys.laylow=true; updateCam(); updateCam(); break;   // …pulled to the LAY LOW survey
+    case 'drive-aerial-off': go(0,'drive'); break;                                    // …procedural fallback (pair with ?aerial=0)
     case 'drive-freeway': go(1,'drive'); if(G.freeway){ G.car.x=nearestLine(WMAX*0.6); G.car.y=CELL*0.85; G.car.ang=0; G.car.spd=52; updateCam(); } break;  // cruising a N-S road up toward the 101 — wall + ramp + gantry in frame (QA: the sing; the old mid-block spot wedged in a parcel and ground to GAME OVER before the shot)
     case 'drive-final': go(fin,'drive'); break;
     case 'drive-freeway-night': { const ni=LEVELS.findIndex(l=>l.night&&l.zone==='valley'&&l.freeway!==null); go(ni<0?1:ni,'drive');   // NIGHT 101: the jam + gantry + sound-wall under the dark grade (QA)
