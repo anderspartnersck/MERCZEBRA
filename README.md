@@ -4,6 +4,34 @@ A May-gray delivery run across the Valley. You're Mercury. Keep moving.
 
 ## ▶ [PLAY IT IN YOUR BROWSER](https://anderspartnersck.github.io/MERCZEBRA/)
 
+## 🆕 ▶ [NORTHRIDGE — drive the real Valley](https://anderspartnersck.github.io/MERCZEBRA/NORTHRIDGE.html)
+
+**An experiment, and the most interesting thing in this repo.** A standalone level that drives
+on a **photograph of the actual San Fernando Valley** instead of a procedural grid — rendered
+the way OutRun did it, a ground plane sampled per scanline, so the perspective, the horizon and
+the sky are real rather than faked.
+
+The scale is measured, not chosen: a parking stall in the aerial is 16px and a real stall is
+2.6m, so the art runs at 16.25 cm/px and a 4.5m car covers 27.7px — within a hair of this
+engine's own 25-unit car. **One source pixel is one world unit.** The world is 3072 x 2048
+against the main game's 1200 x 1200.
+
+**Tilt is the speedometer.** Parked, the camera is near-vertical and it reads as a map. On the
+throttle it lays down toward the road, the horizon drops in and the sky opens up. Speed is the
+only thing that moves it.
+
+| | |
+|---|---|
+| **Drive** | `W A S D` |
+| **Survey** (flat, north-up) | hold `SHIFT` |
+| **Glide / snap** (A/B the feel) | `G` |
+| **Minimap · reset** | `M` · `R` |
+
+[`?selftest`](https://anderspartnersck.github.io/MERCZEBRA/NORTHRIDGE.html?selftest) checks the projection ·
+[`?spd=150`](https://anderspartnersck.github.io/MERCZEBRA/NORTHRIDGE.html?spd=150) boots at speed
+
+*The main game below is untouched by this — it still runs the procedural Valley.*
+
 A Castle Killscreen game by **Anders & Partners**.
 
 > ### ⚠︎ Working build — not a finished game
