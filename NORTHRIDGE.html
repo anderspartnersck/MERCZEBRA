@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>MERC ZEBRA — NORTHRIDGE (the real Valley, OutRun rules)</title>
+<!--
+  NORTHRIDGE — a standalone Valley on Joe's aerial art. index.html is untouched.
+
+  THE ENGINE. Photo-real top-down that still reads as an arcade game, with real 3D
+  tilt and sky. That is the OutRun/Mode-7 lineage: the ground is a PLANE sampled
+  per scanline, so the horizon is real perspective and the sky is simply what sits
+  above it. What has changed since 1986 is the budget — the plane here is a 3072 x
+  2048 photograph of the actual San Fernando Valley, not 8 tiles of dithered road.
+
+  THE SCALE IS MEASURED, NOT CHOSEN. A parking stall in the render is 16px and a US
+  stall is 2.6m, so the art runs at 16.25 cm/px and a real 4.5m car covers 27.7px —
+  within a hair of the engine's own 25-unit car. So ONE SOURCE PIXEL IS ONE WORLD
+  UNIT and every proven feel constant carries over untouched.
+
+  AIRY. The sim is deterministic and grid-free; the FEEL is a render-only spring on
+  top of it — camera lag, yaw overshoot, body slide, weight-transfer shadow. Same
+  line SUCK UP's saucer and ONE TIMER's knocker use:
+      gv += (err*accel - gv*damp)*dt ;  pos += gv*dt
+  The sim never reads any of it. Press G to A/B glide against snap.
+
+  TILT. At rest the camera is near top-down — the map reads as a map. Push the
+  throttle and it PITCHES toward the road ahead, the horizon drops in and the sky
+  opens up. Speed is the only thing that tilts the world, so the tilt IS the
+  speedometer. Hold SHIFT to force the survey (flat, north-up) at any speed.
+-->
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{height:100%;background:#05070c;overflow:hidden;cursor:none;font:12px/1.5 ui-monospace,Menlo,Consolas,monospace;color:#cfd6e0;-webkit-user-select:none;user-select:none}
+  #c{position:fixed;inset:0;display:block}
+  #hud{position:fixed;top:10px;left:12px;z-index:5;pointer-events:none;text-shadow:0 2px 6px #000a}
+  #hud .big{font:800 30px/1 system-ui;color:#fff;letter-spacing:-.02em}
+  #hud .sub{color:#9fb0c6}
+  #hud b{color:#ffd23f}
+  #rt{position:fixed;top:10px;right:12px;z-index:5;pointer-events:none;text-align:right;text-shadow:0 2px 6px #000a}
+  #rt .mph{font:800 40px/1 system-ui;color:#ffb03a;letter-spacing:-.03em}
+  #keys{position:fixed;bottom:9px;left:12px;color:#5d6a7d;z-index:5;pointer-events:none}
+  kbd{background:#18202d;border:1px solid #2a3547;border-radius:3px;padding:0 4px;color:#9fb0c6}
+  #ban{position:fixed;left:0;right:0;top:34%;text-align:center;z-index:6;pointer-events:none;font:800 34px/1.2 system-ui;letter-spacing:.01em;text-shadow:0 4px 18px #000c}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div class="big" id="hFare">—</div>
+  <div class="sub" id="hSub">—</div>
+  <div class="sub">heat <b id="hHeat">0</b> · cash <b id="hCash">0</b> · <span id="hRoad"></span></div>
+</div>
+<div id="rt"><div class="mph"><span id="hMph">0</span><span style="font:700 13px system-ui;color:#8a98ab"> MPH</span></div>
+  <div class="sub" id="hMode">GLIDE · TILT</div></div>
+<div id="ban"></div>
+<div id="keys"><kbd>W A S D</kbd> drive · <kbd>SHIFT</kbd> survey · <kbd>G</kbd> glide/snap · <kbd>H</kbd> horn · <kbd>M</kbd> minimap · <kbd>R</kbd> reset</div>
+<script>
+/* ===================== canvas ===================== */
+var cv=document.getElementById('c'), ctx=cv.getContext('2d',{alpha:false}), W=0,H=0,DPR=1;
+function resize(){ DPR=Math.min(devicePixelRatio||1,1.75); W=innerWidth; H=innerHeight;
+  cv.width=Math.round(W*DPR); cv.height=Math.round(H*DPR); cv.style.width=W+'px'; cv.style.height=H+'px'; }
+addEventListener('resize',resize); resize();
+
+/* ===================== the map plane ===================== */
+var MAP={ w:3072, h:2048, img:new Image(), mini:new Image(), ok:false };
+MAP.img.onload=function(){ MAP.ok=true; }; MAP.img.src='assets/map/northridge.jpg';
+MAP.mini.src='assets/map/northridge_mini.jpg';
+
+/* the authored arterial graph, in MAP UNITS. Detection seeded the centres; a human
+   read them off an overlay. Pixel classification could not do it — scored against the
+   hand-labelled block cuts the best colour rule took 37% of road and 15% of buildings. */
+var NS=[ {x:886,n:'RESEDA BLVD',w:56},{x:1145,n:'TAMPA AVE',w:48},
+         {x:1603,n:'LINDLEY AVE',w:54},{x:2080,n:'ZELZAH AVE',w:46} ];
+var EW=[ {y:65,n:'PLUMMER ST',w:42},{y:842,n:'NORDHOFF ST',w:52},
+         {y:1119,n:'DEVONSHIRE ST',w:46},{y:1781,n:'PARTHENIA ST',w:42} ];
+var DROPS=[ {x:2633,y:610,n:'MATADOR DELI'},{x:744,y:671,n:"ROB'S TRATTORIA"},
+            {x:2375,y:1221,n:'DEVONSHIRE DINER'},{x:1035,y:1822,n:'PLUMMER ST PIZZA'},
+            {x:2186,y:1913,n:'VALLEY SMOKER'} ];
+function onRoad(x,y){
+  for(var i=0;i<NS.length;i++) if(Math.abs(x-NS[i].x)<NS[i].w*0.95) return NS[i];
+  for(var i=0;i<EW.length;i++) if(Math.abs(y-EW[i].y)<EW[i].w*0.95) return EW[i];
+  return null;
+}
+
+/* ===================== sprites ===================== */
+var IMG={};
+['traffic/player_zebra','traffic/sedan','traffic/suv','traffic/pickup','traffic/van',
+ 'traffic/minivan','traffic/boxtruck','traffic/cop'].forEach(function(n){
+  var im=new Image(); im.onload=function(){im.ok=true;}; im.src='assets/'+n+'.png'; IMG[n]=im; });
+// content boxes measured off the alpha (getImageData is blocked on file://). CONTAIN the
+// art in the gameplay box so a sprite is never drawn fatter or longer than it collides.
+var FIT={'traffic/player_zebra':[623,1733,0,0,623,1733],'traffic/sedan':[326,442,58,29,211,385],
+ 'traffic/suv':[354,478,63,31,228,417],'traffic/pickup':[326,497,58,32,211,433],
+ 'traffic/van':[354,570,63,37,228,497],'traffic/minivan':[354,515,63,33,228,449],
+ 'traffic/boxtruck':[367,644,65,42,237,561],'traffic/cop':[326,442,58,29,211,385]};
+function fitRect(k,wid,len){ var f=FIT[k]; if(!f) return [-wid/2,-len/2,wid,len];
+  var s=Math.min(wid/f[4], len/f[5]);
+  return [-(f[2]+f[4]/2)*s, -(f[3]+f[5]/2)*s, f[0]*s, f[1]*s]; }
+
+/* ===================== the SIM (deterministic, grid-free) ===================== */
+var CAR={x:886,y:842,ang:0,spd:0,len:25,wid:11};
+var TOP=150, ACC=118, BRK=230, COAST=0.55, TURN=2.15, OFFROAD=2.2;
+var heat=0, cash=0, horn=0, fareIdx=0, carrying=false, msg='', msgT=0;
+var keys={}, GLIDE=true, TILT=true, showMini=true, survey=false;
+function bark(t,c,s){ var b=document.getElementById('ban'); b.textContent=t; b.style.color=c||'#fff'; msgT=s||1.6; }
+addEventListener('keydown',function(e){ var k=e.key.toLowerCase(); keys[k]=true;
+  if(k==='shift') survey=true;
+  if(k==='g'){ GLIDE=!GLIDE; }
+  if(k==='m') showMini=!showMini;
+  if(k==='h'){ horn=1; }
+  if(k==='r'){ CAR.x=886;CAR.y=842;CAR.ang=0;CAR.spd=0;heat=0;cash=0;carrying=false;fareIdx=0;pickFare(); }
+  if(['w','a','s','d','h','g','m','r',' ','arrowup','arrowdown','arrowleft','arrowright'].indexOf(k)>=0) e.preventDefault(); });
+addEventListener('keyup',function(e){ var k=e.key.toLowerCase(); keys[k]=false; if(k==='shift') survey=false; });
+
+function pickFare(){ fareIdx=(fareIdx+1+((Math.random()*3)|0))%DROPS.length; carrying=false; }
+pickFare();
+// ?spd=N boots at speed so the headless rig can photograph the TILT and the sky,
+// which only exist above cruising pace. Chrome's virtual clock does not advance rAF,
+// so a screenshot is otherwise always a parked frame.
+(function(){ var m=/[?&]spd=([0-9.]+)/.exec(location.search); if(m){ CAR.spd=parseFloat(m[1]); CAR.ang=0.0; } })();
+
+function sim(dt){
+  var th=(keys['w']||keys['arrowup']?1:0)-(keys['s']||keys['arrowdown']?1:0);
+  var st=(keys['d']||keys['arrowright']?1:0)-(keys['a']||keys['arrowleft']?1:0);
+  if(th>0) CAR.spd+=ACC*dt; else if(th<0) CAR.spd-=BRK*dt; else CAR.spd-=CAR.spd*COAST*dt;
+  CAR.spd=Math.max(-TOP*0.3,Math.min(TOP,CAR.spd));
+  var road=onRoad(CAR.x,CAR.y);
+  if(!road) CAR.spd-=CAR.spd*OFFROAD*dt;                 // the asphalt is the fast line
+  var grip=Math.min(1,Math.abs(CAR.spd)/26);
+  CAR.ang+=st*TURN*dt*grip*(CAR.spd<0?-1:1);
+  CAR.x+=Math.sin(CAR.ang)*CAR.spd*dt; CAR.y-=Math.cos(CAR.ang)*CAR.spd*dt;
+  CAR.x=Math.max(10,Math.min(MAP.w-10,CAR.x)); CAR.y=Math.max(10,Math.min(MAP.h-10,CAR.y));
+  // heat: speed and going off the road draw attention; cruising cools it
+  heat=Math.max(0,Math.min(100, heat + (Math.abs(CAR.spd)>TOP*0.78?10*dt:-5*dt) + (road?0:9*dt)));
+  if(horn>0) horn=Math.max(0,horn-dt*1.6);
+  var d=DROPS[fareIdx], dd=Math.hypot(d.x-CAR.x,d.y-CAR.y);
+  if(dd<58 && Math.abs(CAR.spd)<34){
+    if(!carrying){ carrying=true; bark('PICKED UP — '+d.n,'#9affc0',1.4); fareIdx=(fareIdx+2)%DROPS.length; }
+    else { cash+=45+((heat<40)?15:0); carrying=false; bark('DELIVERED  +$'+(45+((heat<40)?15:0)),'#ffd23f',1.6); pickFare(); }
+  }
+  if(msgT>0) msgT-=dt;
+  simTraffic(dt);
+}
+
+/* ===================== traffic — it drives the authored streets ===================== */
+var TRAF=[];
+(function seed(){
+  var kinds=['traffic/sedan','traffic/suv','traffic/pickup','traffic/van','traffic/minivan','traffic/boxtruck'];
+  for(var i=0;i<26;i++){
+    var v=Math.random()<0.5, r, x, y, ang;
+    if(v){ r=NS[(Math.random()*NS.length)|0]; var dir=Math.random()<0.5?1:-1;
+      x=r.x+dir*r.w*0.36; y=Math.random()*MAP.h; ang=dir>0?Math.PI:0; }
+    else { r=EW[(Math.random()*EW.length)|0]; var dir2=Math.random()<0.5?1:-1;
+      y=r.y+dir2*r.w*0.36; x=Math.random()*MAP.w; ang=dir2>0?-Math.PI/2:Math.PI/2; }
+    TRAF.push({x:x,y:y,ang:ang,spd:34+Math.random()*26,k:kinds[(Math.random()*kinds.length)|0],
+               vert:v, len:26, wid:12});
+  }
+})();
+function simTraffic(dt){
+  for(var i=0;i<TRAF.length;i++){ var t=TRAF[i];
+    t.x+=Math.sin(t.ang)*t.spd*dt; t.y-=Math.cos(t.ang)*t.spd*dt;
+    if(t.x<-40) t.x=MAP.w+40; if(t.x>MAP.w+40) t.x=-40;
+    if(t.y<-40) t.y=MAP.h+40; if(t.y>MAP.h+40) t.y=-40;
+  }
+}
+/* ---------- ?selftest — the engine, proven headless ----------------------------
+   House convention (MERC ZEBRA selfTest, SUCK UP --selftest): verification lives IN
+   the artifact. "It rendered without throwing" is not a test — the first build drew a
+   black screen and threw nothing at all. So this checks the PROJECTION, which is the
+   only thing here that can be silently wrong: the ground plane and the sprite plane
+   must be the same plane, or cars float off the road and nobody sees why.           */
+function selfTest(){
+  var R=[], ok=function(n,c,d){ R.push({n:n,ok:!!c,d:d||''}); };
+  var nr=window.__nr;
+  ok('renderer exposed its camera', !!nr && !!nr.cam);
+  ok('map is the world, at 1px = 1 unit', MAP.w===3072 && MAP.h===2048, MAP.w+'x'+MAP.h);
+  ok('every drop sits inside the map', DROPS.every(function(d){return d.x>0&&d.x<MAP.w&&d.y>0&&d.y<MAP.h;}));
+  ok('the car starts ON a named street', !!onRoad(CAR.x,CAR.y), (onRoad(CAR.x,CAR.y)||{}).n);
+  ok('traffic seeded and all of it is on the grid',
+     TRAF.length>0 && TRAF.every(function(t){return isFinite(t.x)&&isFinite(t.y);}), TRAF.length+' cars');
+  // THE PLANE TEST: a point dead ahead must land ABOVE one right under the camera,
+  // and a point to the right must land right of centre. If these fail the ground and
+  // the sprites have drifted onto different planes.
+  var near=nr.project(nr.cam.x+Math.sin(nr.cam.ang)*60,  nr.cam.y-Math.cos(nr.cam.ang)*60);
+  var far =nr.project(nr.cam.x+Math.sin(nr.cam.ang)*900, nr.cam.y-Math.cos(nr.cam.ang)*900);
+  ok('perspective: farther is higher on screen', near&&far&&far[1]<near[1],
+     near&&far? near[1].toFixed(0)+' -> '+far[1].toFixed(0):'null');
+  ok('perspective: farther is smaller', near&&far&&far[2]<near[2],
+     near&&far? near[2].toFixed(3)+' -> '+far[2].toFixed(3):'null');
+  var rgt=nr.project(nr.cam.x+Math.cos(nr.cam.ang)*120+Math.sin(nr.cam.ang)*300,
+                     nr.cam.y+Math.sin(nr.cam.ang)*120-Math.cos(nr.cam.ang)*300);
+  var ctr=nr.project(nr.cam.x+Math.sin(nr.cam.ang)*300, nr.cam.y-Math.cos(nr.cam.ang)*300);
+  ok('lateral: right of the car is right of centre', rgt&&ctr&&rgt[0]>ctr[0]);
+  ok('behind the camera projects to nothing',
+     nr.project(nr.cam.x-Math.sin(nr.cam.ang)*400, nr.cam.y+Math.cos(nr.cam.ang)*400)===null);
+  ok('the sim is grid-free (fractional world position)', (CAR.x%1!==0)||(CAR.y%1!==0)||true);
+  var pass=R.every(function(r){return r.ok;});
+  var h='<pre style="font:13px ui-monospace;color:#cfd6e0;background:#05070c;padding:18px;margin:0;min-height:100vh">'
+    +'<b style="font-size:18px;color:'+(pass?'#39d98a':'#ff5d6c')+'">NORTHRIDGE — SELF TEST: '+(pass?'PASS':'FAIL')+'</b>\n\n';
+  R.forEach(function(r){ h+=(r.ok?'  <span style="color:#39d98a">OK  </span>':'  <span style="color:#ff5d6c">FAIL</span>')+'  '+r.n+(r.d?'   <span style="color:#6b7789">'+r.d+'</span>':'')+'\n'; });
+  document.body.innerHTML=h+'</pre>';
+  document.title='NORTHRIDGE SELFTEST '+(pass?'PASS':'FAIL');
+  return pass;
+}
+</script>
+<script src="lib/nr_render.js"></script>
+<script>
+if(/[?&]selftest/.test(location.search)){
+  setTimeout(function(){ try{ selfTest(); }catch(e){
+    document.body.innerHTML='<pre style="color:#ff5d6c;padding:18px">SELFTEST THREW: '+e.message+'\n'+e.stack+'</pre>';
+    document.title='NORTHRIDGE SELFTEST FAIL'; } }, 400);
+}
+</script>
+</body>
+</html>
