@@ -201,9 +201,49 @@ canvas{display:block;width:100%;height:100%;image-rendering:auto}
   aspect-ratio:1/1; border-radius:0; padding:0; gap:0; background:#000; box-shadow:none; }
 :root[data-view="game"] #screen{ border-radius:0; box-shadow:none; }
 :root[data-view="game"] #scan{ opacity:.22; }     /* lighter scanlines — see the action clearly */
+/* ---- PHONE PAD (Joe 2026-10-14) — the HIGH TABLE / SUCK UP phone scheme. Touch + landscape (or ?touch): the square
+   game stays CONTAINED in the middle; the leftover dark FRAME columns hold the controls. LEFT = the STEER stick
+   (8-way, floating origin: ←/→ turn, ↑ gas, ↓ brake — exactly the arrow keys). RIGHT = every deck button, in the
+   deck colours. HAND flop (⇄ chip / ?hand=right) mirrors the two sides. Only in body.mztouch; desktop untouched. */
+#mzpad,#mzrot{display:none}
+body.mztouch #mzpad{display:block;position:fixed;inset:0;pointer-events:none;z-index:50}
+body.mztouch #cab{touch-action:none}
+#mzpad .col{position:absolute;top:0;bottom:0;width:var(--mzcol,200px);display:flex;flex-direction:column;align-items:center;justify-content:flex-end;
+  padding-bottom:max(12px,env(safe-area-inset-bottom));background:radial-gradient(120% 80% at 50% 100%,#15121a,#050407)}
+#mzpad .L{left:0;padding-left:env(safe-area-inset-left);box-shadow:inset -3px 0 0 #ff2d9e,inset -6px 0 0 #000,inset -8px 0 0 #e9e4da}
+#mzpad .R{right:0;padding-right:env(safe-area-inset-right);box-shadow:inset 3px 0 0 #ff2d9e,inset 6px 0 0 #000,inset 8px 0 0 #e9e4da}
+#mzgrid{display:grid;grid-template-columns:repeat(2,var(--mzbtn,84px));column-gap:calc(var(--mzbtn,84px)*0.2);row-gap:calc(var(--mzbtn,84px)*0.3);
+  margin-bottom:calc(var(--mzbtn,84px)*0.2)}
+.mzb{pointer-events:auto;touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent;
+  position:relative;width:var(--mzbtn,84px);height:var(--mzbtn,84px);border-radius:50%;
+  background:radial-gradient(circle at 40% 35%,color-mix(in srgb,var(--c) 30%,#fff 20%),color-mix(in srgb,var(--c) 55%,#000) 70%,#000);
+  border:3px solid #b9bcc4;box-shadow:0 0 12px color-mix(in srgb,var(--c) 45%,transparent),inset 0 0 12px rgba(0,0,0,.55);transition:transform .07s,box-shadow .12s}
+.mzb .lb{position:absolute;left:50%;bottom:-2px;transform:translate(-50%,100%);font:italic 900 calc(var(--mzbtn,84px)*0.17)/1.25 "Helvetica Neue",Arial;
+  letter-spacing:.04em;color:var(--c);text-shadow:0 1px 3px #000,0 0 8px rgba(0,0,0,.9);white-space:nowrap;pointer-events:none}
+.mzb.down{transform:scale(.93);box-shadow:0 0 26px var(--c),inset 0 0 16px rgba(0,0,0,.5)}
+.mzb.gas{--c:#ff9f1c}.mzb.brake{--c:#ff3b3b}.mzb.ride{--c:#ff2d9e}.mzb.laylow{--c:#39d98a}.mzb.horn{--c:#3b7bff}.mzb.start{--c:#d9dce3}
+#mzzone{pointer-events:auto;touch-action:none;position:relative;width:100%;flex:1}
+#mzzone canvas{position:absolute;left:50%;bottom:4%;transform:translateX(-50%);pointer-events:none}
+#mzzone .lb{position:absolute;left:50%;bottom:0;transform:translateX(-50%);font:italic 900 13px/1 "Helvetica Neue",Arial;letter-spacing:.12em;color:#c9cbd2;
+  text-shadow:0 1px 3px #000;pointer-events:none;white-space:nowrap}
+#mzhand{position:absolute;top:max(10px,env(safe-area-inset-top));pointer-events:auto;touch-action:none;padding:0 11px;height:30px;border-radius:15px;
+  border:1px solid rgba(255,45,158,.5);background:rgba(8,4,10,.7);color:#ff2d9e;font:900 11px/28px "Helvetica Neue",Arial;letter-spacing:.1em}
+body.mzrot #mzrot{display:flex;position:fixed;inset:0;z-index:60;background:#050407;color:#e9e4da;flex-direction:column;align-items:center;justify-content:center;gap:14px;
+  font:900 20px/1.2 "Helvetica Neue",Arial;letter-spacing:.06em;text-align:center}
+#mzrot .ph{width:46px;height:78px;border:3px solid #ff2d9e;border-radius:9px;animation:mzRot 1.6s ease-in-out infinite}
+@keyframes mzRot{40%,100%{transform:rotate(-90deg)}}
 </style>
 </head>
 <body>
+<div id="mzpad"><div class="col L" id="mzcolL"></div><div class="col R" id="mzcolR"></div>
+  <div id="mzzone"><canvas id="mzstick"></canvas><span class="lb">STEER</span></div>
+  <div id="mzgrid">
+    <div class="mzb start" data-a="start"><span class="lb">START</span></div><div class="mzb horn" data-a="horn"><span class="lb">HORN</span></div>
+    <div class="mzb laylow" data-a="laylow"><span class="lb">LAY LOW</span></div><div class="mzb ride" data-a="ride"><span class="lb">RIDE</span></div>
+    <div class="mzb brake" data-a="brake"><span class="lb">BRAKE</span></div><div class="mzb gas" data-a="gas"><span class="lb">GAS</span></div>
+  </div>
+  <div id="mzhand">⇄ LEFTY</div></div>
+<div id="mzrot"><div class="ph"></div>TURN YOUR PHONE<br><span style="font-size:13px;color:#b9b2c4;font-weight:700">the valley drives sideways</span></div>
 <div id="cab">
   <div id="frame">
     <div id="marquee">
@@ -5210,6 +5250,78 @@ else if(_sceneM){ setupScene(_sceneM[1]); requestAnimationFrame(frame); }
 else if(_goM){ const gi=Math.max(0,Math.min(LEVELS.length-1,parseInt(_goM[1],10)||0));
   startRun(); G.li=gi; loadLevel(); G.mode='brief'; requestAnimationFrame(frame); }   // off-ramp from THE 101 -> that level's brief
 else { G.level=LEVELS[0]; G.mode='boot'; requestAnimationFrame(frame); }
+</script>
+<script>
+/* ---- PHONE PAD (Joe 2026-10-14) — a SEPARATE script after the engine (the selftest/break/balance harnesses only
+   extract the first inline <script>, so the engine + its gates are untouched). Touch + landscape (or ?touch), game
+   view only, never inside an iframe (cab_desktop's ?embed owns its panel). Speaks the deck's own path — deckIn() —
+   so every mode (boot, coin, menus, stage select, choice, drive) behaves exactly like the keyboard / deck:
+     STEER stick (8-way, floating origin): x = left/right · up = gas · down = brake (= the arrow keys).
+     Buttons: GAS / BRAKE / LAY LOW held · RIDE / HORN / START fire. A TAP on the game (not driving) = START.
+   HAND: ⇄ chip (hidden while driving) or ?hand=right swaps the sides. SESSION-ONLY — the game persists no settings. */
+(function(){
+  var Q=new URLSearchParams(location.search), pad=document.getElementById('mzpad'); if(!pad||!document.body||!document.body.classList) return;
+  var TOUCHDEV=Q.has('touch')||((('ontouchstart' in window)||navigator.maxTouchPoints>0)&&matchMedia('(pointer:coarse)').matches);
+  if(!TOUCHDEV||window.top!==window||typeof VIEW==='undefined'||VIEW!=='game') return;
+  var cL=document.getElementById('mzcolL'), cR=document.getElementById('mzcolR'), zone=document.getElementById('mzzone'), grid=document.getElementById('mzgrid'),
+      scv=document.getElementById('mzstick'), sx=scv.getContext('2d'), chip=document.getElementById('mzhand'), canvas=document.getElementById('cv');
+  var HAND='L', hq=(Q.get('hand')||'').toLowerCase(); if(hq==='right'||hq==='r') HAND='R';   // HAND = the STICK's side ('L' default: stick left, buttons right)
+  var ON=false;
+  function buzz(ms){ try{ navigator.vibrate&&navigator.vibrate(ms||10); }catch(_){} }
+  function layout(){
+    var land=innerWidth>=innerHeight; ON=land;
+    document.body.classList.toggle('mztouch',ON); document.body.classList.toggle('mzrot',!land);
+    if(!ON) return;
+    var col=Math.max(0,(innerWidth-innerHeight)/2);   // the square game leaves this much each side
+    var btn=Math.round(Math.max(44,Math.min(col*0.40,(innerHeight-56)/3.9,104)));
+    var r=document.documentElement.style; r.setProperty('--mzcol',col+'px'); r.setProperty('--mzbtn',btn+'px');
+    var sCol=HAND==='R'?cR:cL, bCol=sCol===cL?cR:cL;
+    sCol.appendChild(zone); bCol.appendChild(grid);
+    chip.style.left=HAND==='R'?'':'calc(env(safe-area-inset-left) + 10px)'; chip.style.right=HAND==='R'?'calc(env(safe-area-inset-right) + 10px)':'';   // over the stick column
+    chip.textContent=HAND==='R'?'⇄ RIGHTY':'⇄ LEFTY';
+    var W0=Math.min(col*0.86,innerHeight*0.5); sk=W0/SG.w; sdpr=Math.min(devicePixelRatio||1,2.5);
+    var Hh=(SG.h-SG.by+SG.r+12)*sk; scv.style.width=W0+'px'; scv.style.height=Hh+'px'; scv.width=Math.round(W0*sdpr); scv.height=Math.round(Hh*sdpr);
+  }
+  window.setMzHand=function(h){ HAND=h==='R'?'R':'L'; layout(); };
+  chip.addEventListener('pointerdown',function(e){ e.preventDefault(); buzz(); setMzHand(HAND==='R'?'L':'R'); });
+  // ---- buttons: deckIn() is the deck's own input path (held = gas/brake/laylow; edge = ride/horn/start) ----
+  Array.prototype.forEach.call(grid.querySelectorAll('.mzb'),function(el){ var a=el.getAttribute('data-a');
+    el.addEventListener('pointerdown',function(e){ e.preventDefault(); try{el.setPointerCapture(e.pointerId);}catch(_){} el.classList.add('down'); buzz(); try{deckIn(a,true);}catch(_){} });
+    var lift=function(){ if(!el.classList.contains('down'))return; el.classList.remove('down'); try{deckIn(a,false);}catch(_){} };
+    el.addEventListener('pointerup',lift); el.addEventListener('pointercancel',lift); el.addEventListener('lostpointercapture',lift);
+    el.addEventListener('contextmenu',function(e){ e.preventDefault(); }); });
+  // ---- STEER stick: 8-way, floating origin; drawn from the CK arcade-stick renders (HIGH TABLE tools/cut_touch_sticks.py) ----
+  var SG={w:256,h:179,px:128.8,py:50.4,by:-84.7,r:54.4,sw:46.5}, sk=1, sdpr=1, sid=null, so=[0,0], st={x:0,y:0}, sv={x:0,y:0}, held={};
+  var base=new Image(), ball=new Image(); base.src='assets/tstick/gray_base.png'; ball.src='assets/tstick/gray_ball.png';
+  function setDir(x,y){ var want={left:x<0,right:x>0,gas:y<0,brake:y>0};
+    for(var k in want){ if(want[k]&&!held[k]){ held[k]=true; try{deckIn(k,true);}catch(_){} } else if(!want[k]&&held[k]){ held[k]=false; try{deckIn(k,false);}catch(_){} } }
+    st.x=x; st.y=y; }
+  function sdir(dx,dy){ if(Math.hypot(dx,dy)<14){ setDir(0,0); return; }
+    var a=((Math.round(Math.atan2(dy,dx)/(Math.PI/4))%8)+8)%8; setDir([1,1,0,-1,-1,-1,0,1][a],[0,1,1,1,0,-1,-1,-1][a]); }
+  zone.addEventListener('pointerdown',function(e){ e.preventDefault(); if(sid!==null)return; sid=e.pointerId; try{zone.setPointerCapture(sid);}catch(_){} so=[e.clientX,e.clientY]; buzz(); });
+  zone.addEventListener('pointermove',function(e){ if(e.pointerId!==sid)return; var ox=st.x,oy=st.y; sdir(e.clientX-so[0],e.clientY-so[1]); if((st.x!==ox||st.y!==oy)&&(st.x||st.y)) buzz(6); });
+  var sUp=function(e){ if(e.pointerId!==sid)return; sid=null; setDir(0,0); };
+  zone.addEventListener('pointerup',sUp); zone.addEventListener('pointercancel',sUp); zone.addEventListener('lostpointercapture',sUp);
+  addEventListener('blur',function(){ sid=null; setDir(0,0); });
+  // a TAP on the game outside driving = START (coin / skip / advance); STAGE SELECT keeps its own point-and-click
+  if(canvas) canvas.addEventListener('pointerdown',function(e){ if(!ON||e.pointerType==='mouse') return;
+    try{ if(G.mode!=='drive'&&G.mode!=='select') deckIn('start',true); }catch(_){} });
+  function drawStick(){
+    sv.x+=(st.x-sv.x)*0.45; sv.y+=(st.y-sv.y)*0.45;
+    var W=scv.width, H=scv.height, k=sk*sdpr; sx.setTransform(1,0,0,1,0,0); sx.clearRect(0,0,W,H);
+    var ox=(W-SG.w*k)/2, oy=H-SG.h*k;
+    if(base.complete&&base.naturalWidth) sx.drawImage(base,ox,oy,SG.w*k,SG.h*k);
+    var L=(SG.py-SG.by)*k, th=0.5, px=ox+SG.px*k, py=oy+SG.py*k;
+    var bx=px+sv.x*L*Math.sin(th), by=py-L*Math.cos(th*Math.hypot(sv.x,sv.y))+sv.y*L*Math.sin(th)*0.42, bs=1+sv.y*0.07;
+    var g=sx.createLinearGradient(bx-SG.sw*k/2,0,bx+SG.sw*k/2,0); g.addColorStop(0,'#1a1712'); g.addColorStop(0.35,'#6b6252'); g.addColorStop(0.55,'#2a2620'); g.addColorStop(1,'#0c0b09');
+    sx.strokeStyle=g; sx.lineCap='round'; sx.lineWidth=SG.sw*k*0.5; sx.beginPath(); sx.moveTo(px,py); sx.lineTo(bx,by+SG.r*k*0.5); sx.stroke();
+    if(ball.complete&&ball.naturalWidth){ var R=SG.r*k*bs; sx.filter='brightness(0.45)'; sx.drawImage(ball,bx-R,by-R,R*2,R*2); sx.filter='none'; }   // the house BLACK ball-top
+  }
+  var _lay=false; function relay(){ if(_lay)return; _lay=true; try{layout();}finally{_lay=false;} }
+  addEventListener('resize',relay); addEventListener('orientationchange',function(){ setTimeout(relay,150); }); relay();
+  (function tick(){ requestAnimationFrame(tick); if(!ON) return; drawStick(); try{ chip.style.display=(G.mode==='drive')?'none':''; }catch(_){} })();
+  if(Q.has('qa')) window.__mzPad={ hand:function(){ return HAND; }, st:function(){ return [st.x,st.y]; }, held:function(){ return JSON.parse(JSON.stringify(held)); } };
+})();
 </script>
 </body>
 </html>
