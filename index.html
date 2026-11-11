@@ -606,6 +606,39 @@ const KEYMAP={ArrowLeft:'left',ArrowRight:'right',ArrowUp:'gas',ArrowDown:'brake
   KeyC:'laylow',ShiftLeft:'laylow',ShiftRight:'laylow',KeyH:'horn'};
 addEventListener('keydown',e=>{const k=KEYMAP[e.code]; if(k){e.preventDefault(); if(!keys[k])press(k); keys[k]=true;}});
 addEventListener('keyup',e=>{const k=KEYMAP[e.code]; if(k)keys[k]=false;});
+// UI-AUDIT 1110: the PAUSE MENU — ESC / P while driving (pad: SELECT/BACK). Outside KEYMAP: nothing else changes.
+addEventListener('keydown',e=>{ if(e.code!=='Escape'&&e.code!=='KeyP')return; e.preventDefault(); togglePause(); });
+const PAUSE=['RESUME','HOW TO DRIVE','QUIT TO TITLE'].concat((typeof location!=='undefined'&&new URLSearchParams(location.search).get('from')==='keep')?['QUIT TO ARCADE']:[]);   // Q259
+function togglePause(){
+  if(G.mode==='drive'&&!G.demo){ G.mode='pause'; G.pauseI=0; G.pauseHow=false; for(const k in keys)keys[k]=false; sfx.cursor(); }
+  else if(G.mode==='pause'){ if(G.pauseHow) G.pauseHow=false; else G.mode='drive'; sfx.cursor(); }
+}
+function pausePress(k){
+  if(G.pauseHow){ if(k==='start'||k==='laylow') G.pauseHow=false; return; }
+  if(k==='gas'||k==='left'){ G.pauseI=(G.pauseI+PAUSE.length-1)%PAUSE.length; sfx.cursor(); }
+  else if(k==='brake'||k==='right'){ G.pauseI=(G.pauseI+1)%PAUSE.length; sfx.cursor(); }
+  else if(k==='laylow'){ G.mode='drive'; }
+  else if(k==='start'){ const it=PAUSE[G.pauseI];
+    if(it==='RESUME') G.mode='drive'; else if(it==='HOW TO DRIVE') G.pauseHow=true;
+    else if(it==='QUIT TO TITLE'){ G.attractPhase=null; G.demo=false; G.mode='attract'; }
+    else if(it==='QUIT TO ARCADE'){ location.href="../COLEMAN'S KEEP.html"; } }
+}
+function drawPause(){
+  veil(G.pauseHow?.86:.66);
+  if(G.pauseHow){
+    med('HOW TO DRIVE',H*0.16,getCss('--gold')); small('KEEP MOVING · NOT GO FAST',H*0.16+30,getCss('--amber'));
+    const L=[['STEER','← / →'],['GAS','↑ · Z · A'],['BRAKE','↓ · X · S — feather corners'],['RIDE','SPACE · ENTER — pickup / drop-off'],
+      ['LAY LOW','SHIFT · C — bleed heat, shake cops'],['HORN','H — the GALLOP: leapfrog traffic'],
+      ['PAD','stick steer · A gas · B brake · Y ride'],['','X lay low · LB horn · SELECT pause'],['PAUSE','ESC · P']];
+    ctx.font='bold 17px "Courier New",monospace';
+    for(let i=0;i<L.length;i++){ const y=H*0.30+i*36; ctx.textAlign='right'; ctx.fillStyle=getCss('--gold'); ctx.fillText(L[i][0],W*0.24,y);
+      ctx.textAlign='left'; ctx.fillStyle='#e8e8e8'; ctx.font='16px "Courier New",monospace'; ctx.fillText(L[i][1],W*0.24+18,y); ctx.font='bold 17px "Courier New",monospace'; }
+    ctx.textAlign='left'; small('ENTER / ESC — BACK',H*0.92,getCss('--gold')); return;
+  }
+  big('PAUSED',H*0.34,getCss('--gold'));
+  for(let i=0;i<PAUSE.length;i++){ const sel=i===G.pauseI; med((sel?'▶ ':'')+PAUSE[i]+(sel?' ◀':''),H*0.48+i*44,sel?getCss('--gold'):'#9aa3ad'); }
+  small('↑ ↓ choose · ENTER go · ESC resume',H*0.82,'#9aa3ad');
+}
 // THE DECK IS FULLY INTERACTIVE (mouse/touch): gas/brake/laylow are held; ride/horn/start fire actions.
 // deckIn() mirrors the keyboard handler exactly (continuous keys go through press() for menu-nav rising
 // edges, then set keys[]; ride/horn/start are edge actions). The caps already light via syncDeck().
@@ -683,8 +716,10 @@ function pollPad(){
   _padNav.horn=horn;
   const st=gp.buttons[GPB.start]?.pressed||gp.buttons[7]?.pressed;
   if(st&&!_padNav.st)press('start'); _padNav.st=st;
+  const bk=gp.buttons[8]?.pressed; if(bk&&!_padNav.bk&&(G.mode==='drive'||G.mode==='pause'))togglePause(); _padNav.bk=bk;   // UI-AUDIT 1110
 }
 function press(k){
+  if(G.mode==='pause'){ pausePress(k); return; }
   if(G.mode==='drive'){ if(k==='start')attemptRide(); else if(k==='horn')gallop(); return; }
   if(G.mode==='select'){                                       // STAGE SELECT — jailbroken cab only
     const N=selectRows().length;
@@ -1839,6 +1874,7 @@ function render(dt){
     case 'travel': drawTravel(); break;
     case 'brief': drawScene(); drawHUD(); drawBrief(); break;
     case 'drive': drawScene(); drawHUD(); break;
+    case 'pause': drawScene(); drawHUD(); drawPause(); break;   // UI-AUDIT 1110: frozen (no update ticks in 'pause')
     case 'choice': drawScene(); drawHUD(); drawChoice(); break;
     case 'result': drawScene(); drawResult(); break;
     case 'ending': drawEnding(); break;
