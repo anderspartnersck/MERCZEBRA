@@ -300,6 +300,7 @@ body.mzrot #mzrot{display:flex;position:fixed;inset:0;z-index:60;background:#050
      Filters the F300's dead axes 2/3 (pinned at +/-1) so they never overwrite a real DOWN,
      folds in d-pad buttons 12-15 + the POV hat, and keeps up=-1/left=-1. Loaded BEFORE the
      engine so pollPad() can call Ghost.read(gp). -->
+<script src="lib/ckboot.js?v=1"></script>   <!-- CK BOOT STANDARD (BOOT-STANDARD.md): audio unlock + unskippable ident + results hold -->
 <script src="lib/ghost.js?v=1"></script>
 <script>
 "use strict";
@@ -719,6 +720,7 @@ function pollPad(){
   const bk=gp.buttons[8]?.pressed; if(bk&&!_padNav.bk&&(G.mode==='drive'||G.mode==='pause'))togglePause(); _padNav.bk=bk;   // UI-AUDIT 1110
 }
 function press(k){
+  if(typeof CKBoot!=='undefined'&&CKBoot.held()) return;      // CK BOOT: ident / results hold (pads included)
   if(G.mode==='pause'){ pausePress(k); return; }
   if(G.mode==='drive'){ if(k==='start')attemptRide(); else if(k==='horn')gallop(); return; }
   if(G.mode==='select'){                                       // STAGE SELECT — jailbroken cab only
@@ -787,6 +789,9 @@ const Mus=(()=>{ let a=null,aN=null,aV=0, b=null,bN=null,bV=0, f=0,fd=0, out=fal
       if(a){try{a.volume=Math.max(0,aV*kout);}catch(e){}} try{b.volume=Math.max(0,bV*kin);}catch(e){}
       if(k>=1){ if(a){try{a.pause();}catch(e){}} a=b;aN=bN;aV=bV; b=null;bN=null; fd=0; } } }
   return { play, stop, tick, head:()=>a, headName:()=>aN, fading:()=>!!b }; })();
+if(typeof CKBoot!=='undefined') CKBoot.onUnlock(()=>{      // CK BOOT: the first gesture starts the blocked boot/attract cue
+  const a=ac(); if(a&&a.resume) a.resume().catch(()=>{});
+  const h=Mus.head(); if(h&&h.paused&&!h.ended){ try{ h.play().catch(()=>{}); }catch(e){} } });
 function playMusic(n,v){ Mus.play(n,{vol:v}); }                 // legacy shim -> the crossfade engine
 function stopMusic(x){ Mus.stop(x); }
 const CS=n=>'CITY SEAMS/City Seams '+n;                       // the CITY SEAMS score lives in music/CITY SEAMS/
@@ -1479,10 +1484,17 @@ function syncDeck(){
   for(const a in lit){ if(d[a]) d[a].classList.toggle('lit',lit[a]); }
   if(d.stick) d.stick.style.setProperty('--tilt', tilt);
 }
+/* CK BOOT STANDARD (BOOT-STANDARD.md) — browser-only, so the node gates (selftest/break/balance) never see it:
+   the CASTLE KILLSCREEN ident can't be pressed through (a press there only unlocks audio), and the result /
+   ending cards hold ~0.9 s before a press counts. press() checks CKBoot.held() so the pad funnel obeys too. */
+let _ckMode=null;
+function ckBootTrack(){ if(typeof CKBoot==='undefined'||G.mode===_ckMode) return; const was=_ckMode; _ckMode=G.mode;
+  if(G.mode==='boot') CKBoot.hold(Infinity); else if(was==='boot') CKBoot.release();
+  if(G.mode==='result'||G.mode==='ending') CKBoot.hold(900); }
 function frame(now){
   let frameTime=(now-(last||now))/1000; last=now;
   if(frameTime>0.25) frameTime=0.25;        // ignore huge stalls (tab switch)
-  rdt=frameTime; acc+=frameTime; pollPad();
+  rdt=frameTime; acc+=frameTime; ckBootTrack(); pollPad();
   let steps=0;
   while(acc>=FIXED_DT && steps<MAX_STEPS){
     G.t+=FIXED_DT;
@@ -4308,7 +4320,6 @@ function drawBoot(){ if(bootT0===null){ bootT0=G.t; bootHonks=0; bootSmashed=fal
   } else {                                                     // ---- 4TH-WALL SMASH + REVEAL ----
     if(!bootSmashed){ bootSmashed=true; sfx.bust(); }          // the glass break (horn dance removed from the open)
     const rt=tt-BOOT_SMASH; drawBootReveal(rt); drawBootCrack(rt);
-    blink('PRESS START',H-40);
   }
   if(tt>=BOOT_DUR){ bootT0=null; G.mode=afterBoot(); } }
 function drawNeonCastle(cx,cy,h,pulse){                        // the purple CASTLE KILLSCREEN emblem (neon polyline)
