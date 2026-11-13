@@ -835,7 +835,8 @@ function pickLevelTrack(L){
 const ATTRACT_CYCLE=['VILLAGE RUNOFF','RIDE OFF INTO THE SUNSET','GENERAL SHERMAN OAKS'];
 const CYCLE_XFADE=2.4;                                         // crossfade seconds between attract cues
 let _cyOn=false,_cyIdx=0;
-function cycleStart(){ _cyOn=true; _cyIdx=0; Mus.play(ATTRACT_CYCLE[0],{loop:false}); }   // cold open: first cue, no fade-in
+function cycleStart(){ _cyOn=true; _cyIdx=0; const h=Mus.head();   // cold open: first cue, no fade-in — but if a level cue is still
+  Mus.play(ATTRACT_CYCLE[0],{loop:false,xfade:(h&&!h.paused&&!h.ended)?CYCLE_XFADE:0}); }   // playing (pause → QUIT TO TITLE) crossfade out of it, never snap (1112)
 function cycleTick(){ if(!_cyOn){ cycleStart(); return; }
   const cur=Mus.head();                                        // the cycle head = the active (non-fading) voice
   if(cur && !Mus.fading() && Mus.headName()===ATTRACT_CYCLE[_cyIdx]){
@@ -919,7 +920,9 @@ function tryImg(k,src){const i=new Image();i.onload=()=>IMG[k]=i;i.src=src;}
  // It's a profile, NOT a top-down deck, so it can't lie flat on the band — drawFreewayViaduct stands it in the
  // marine haze just NORTH of the 101 (columns landing at the rim, deck raised behind) = LA stacked-freeway depth.
  'world/viaduct',
- 'world/clouds',      // OPTIONAL top-down MAY-GRAY cloud texture — overrides the procedural cloud-shadow drift (drawClouds). Soft/seamless reads best.
+ // 'world/clouds' — OPTIONAL top-down MAY-GRAY cloud texture slot (drawClouds blits IMG['world/clouds'] over the procedural
+ // cloud-shadow drift). No art exists yet, so it is NOT requested (it 404'd on every load). Drop assets/world/clouds.png in
+ // (soft/seamless reads best) and put the name back in this list to switch it on.
  'sky/menu','sky/downtown','sky/valley',  // MAY GRAY SKY PACK panoramas for the FRONT-END backdrop (drawAttractBg): menu/stage-select/title-fallback
  // TOP-DOWN 3/4 building sprites (BUILDINGS pack) — real Valley courtyard apartments/motels; replace the
  // procedural box on 'apartments' parcels when present (IMG-guarded → procedural fallback stays). Both cabs.
