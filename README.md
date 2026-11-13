@@ -30,6 +30,11 @@ The pause menu has a HOW TO DRIVE card with the same list.
 **On a phone,** turn it sideways: a steering pad and six buttons (GAS, BRAKE, RIDE, LAY LOW, HORN, START) sit
 beside the game. The ⇄ LEFTY chip mirrors the two sides.
 
+## 3D edition
+
+**[MERC ZEBRA — 3D EDITION](https://anderspartnersck.github.io/MERCZEBRA/3d.html)**: the same game, with the
+Valley drawn from a lit 3D world and the Zebra as a 3D car. Press **3** to flip between 3D and the original art.
+
 ## Stage select
 
 The main link is the **coin-op campaign**: one credit, stage 1, no skipping. For the **STAGE SELECT**, open
