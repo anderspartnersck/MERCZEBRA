@@ -4056,24 +4056,26 @@ function drawEnding(){
     drawEndingDesert();                                        // LOW GRAY SUN — the Mojave he swore he'd never drive
     const tg=ctx.createLinearGradient(0,0,0,H*0.56);           // darken the top so the copy reads over the glare
     tg.addColorStop(0,'rgba(8,9,13,.62)'); tg.addColorStop(1,'rgba(8,9,13,0)'); ctx.fillStyle=tg; ctx.fillRect(0,0,W,H*0.56);
+    if(G.stuntCard) textPlate(H*0.13-46,H*0.13+122); else textPlate(H*0.12-46,H*0.12+200);   // the copy reads on a card, not over the glare
     if(G.stuntCard && G.bladesDone){ big("THE FULL RIDE",H*0.13,getCss('--gold'));
       med("the card, the favor — and a way back.",H*0.13+50,'#fff');
       small("you kept your word in the Mojave and still had Hollywood waiting.",H*0.13+84,getCss('--cyan'));
-      small("100%. nobody runs it cleaner in a Merc Zebra.",H*0.13+108,getCss('--ink-dim')); }
+      small("100%. nobody runs it cleaner in a Merc Zebra.",H*0.13+108,'#c9d1d8'); }
     else if(G.stuntCard){ big("THE CARD",H*0.13,getCss('--gold'));
       med("a stunt agent slid you a card.",H*0.13+50,'#fff');
       small("\"kid — that wrap's hideous. but you can DRIVE.\"",H*0.13+84,getCss('--cyan'));
-      small("a way out of the Valley. the blades went unrun. (not 100%)",H*0.13+108,getCss('--ink-dim')); }
+      small("a way out of the Valley. the blades went unrun. (not 100%)",H*0.13+108,'#c9d1d8'); }
     else { big("LOW GRAY SUN",H*0.12,getCss('--ink'));         // THE LAST RIDE — the one-way gallop
       med("he led them into the deep desert.",H*0.12+48,'#fff');
-      small("a wife to protect. a motorcycle. the people who'd keep her.",H*0.12+80,getCss('--ink-dim'));
-      small(G.bladesDone?"the blades were the warm-up — the sky over Palmdale knew him.":"the military drilled overhead. he drew them off.",H*0.12+104,getCss('--ink-dim'));
-      small("he didn't open up. he just turned the volume up —",H*0.12+132,getCss('--gold-dim'));
-      small("the metal, for his cousin. breakneck. probably one way.",H*0.12+156,getCss('--gold-dim'));
+      small("a wife to protect. a motorcycle. the people who'd keep her.",H*0.12+80,'#c9d1d8');
+      small(G.bladesDone?"the blades were the warm-up — the sky over Palmdale knew him.":"the military drilled overhead. he drew them off.",H*0.12+104,'#c9d1d8');
+      small("he didn't open up. he just turned the volume up —",H*0.12+132,getCss('--gold'));
+      small("the metal, for his cousin. breakneck. probably one way.",H*0.12+156,getCss('--gold'));
       small("nobody knows if the Zebra came back.",H*0.12+186,'#e7eaee'); }
   }
   let avg=0,n=0; G.stars.forEach(s=>{if(s){avg+=s;n++;}}); avg=n?avg/n:0;
-  small(`${n} gigs · avg ${avg.toFixed(1)}★`,H*0.60,getCss('--ink-dim'));
+  textPlate(H*0.60-22,H*0.64+14);
+  small(`${n} gigs · avg ${avg.toFixed(1)}★`,H*0.60,'#c9d1d8');
   blink('PRESS START',H*0.64);
   if(IMG['car/hero'] && G.stuntCard) drawImgFit(IMG['car/hero'],W/2,H*0.82,W*0.50,H*0.26,.96);  // the "out" gets a hero shot; the last ride doesn't
 }
@@ -4185,7 +4187,7 @@ function drawSelect(){
     ctx.fillText(label,X,y);
     // right column: zone tag / cheat toggle state
     ctx.textAlign='right';
-    if(r.type==='stage'){ ctx.font='bold 11px "Courier New",monospace'; ctx.fillStyle=sel?r.col:'#5f6770';
+    if(r.type==='stage'){ ctx.font='bold '+(JB?'11px':'15px')+' "Courier New",monospace'; ctx.fillStyle=sel?r.col:'#8d97a1';
       ctx.fillText(r.tag,NX,y); }
     else if(r.type==='cheat'){ const on=G.cheats[r.key]; ctx.font='bold 12px "Courier New",monospace';
       ctx.fillStyle=on?'#39d98a':'#5d6770'; ctx.fillText(on?'[ ON ]':'[ off ]',NX,y); }
