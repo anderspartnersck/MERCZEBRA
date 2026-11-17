@@ -241,8 +241,8 @@ body.mzrot #mzrot{display:flex;position:fixed;inset:0;z-index:60;background:#050
 <div id="mzpad"><div class="col L" id="mzcolL"></div><div class="col R" id="mzcolR"></div>
   <div id="mzzone"><canvas id="mzstick"></canvas><span class="lb">STEER</span></div>
   <div id="mzgrid">
-    <div class="mzb start" data-a="start"><span class="lb">START</span></div><div class="mzb horn" data-a="horn"><span class="lb">HORN</span></div>
-    <div class="mzb laylow" data-a="laylow"><span class="lb">LAY LOW</span></div><div class="mzb ride" data-a="ride"><span class="lb">RIDE</span></div>
+    <div class="mzb start" data-a="start"><span class="lb">START</span></div><div class="mzb horn" data-a="horn"><span class="lb">GALLOP</span></div>
+    <div class="mzb laylow" data-a="laylow"><span class="lb">LAY LOW</span></div><div class="mzb ride" data-a="ride"><span class="lb">PARK</span></div>
     <div class="mzb brake" data-a="brake"><span class="lb">BRAKE</span></div><div class="mzb gas" data-a="gas"><span class="lb">GAS</span></div>
   </div>
   <div id="mzhand">⇄ LEFTY</div><div id="mzpause">❚❚ PAUSE</div></div>
@@ -274,9 +274,9 @@ body.mzrot #mzrot{display:flex;position:fixed;inset:0;z-index:60;background:#050
         <div class="btns">
           <div class="bbtn"><div class="cab-btn gas"><b></b></div><div class="blabel gas">GAS</div></div>
           <div class="bbtn"><div class="cab-btn brake"><b></b></div><div class="blabel brake">BRAKE</div></div>
-          <div class="bbtn"><div class="cab-btn ride"><b></b></div><div class="blabel ride">RIDE</div></div>
+          <div class="bbtn"><div class="cab-btn ride"><b></b></div><div class="blabel ride">PARK</div></div>
           <div class="bbtn"><div class="cab-btn laylow"><b></b></div><div class="blabel laylow">LAY LOW</div></div>
-          <div class="bbtn"><div class="cab-btn horn"><b></b></div><div class="blabel horn">HORN</div></div>
+          <div class="bbtn"><div class="cab-btn horn"><b></b></div><div class="blabel horn">GALLOP</div></div>
           <div class="bbtn"><div class="cab-btn start" id="startbtn"><b></b></div><div class="blabel start">START</div></div>
         </div>
       </div>
@@ -291,7 +291,7 @@ body.mzrot #mzrot{display:flex;position:fixed;inset:0;z-index:60;background:#050
         <span class="rla-tag">ANDERS &amp; PARTNERS LLC · RESPEK LOGIC ART UREA</span>
       </div>
     </div>
-    <div id="hint">← → TURN &nbsp;·&nbsp; ↑ GAS &nbsp;·&nbsp; ↓ BRAKE &nbsp;·&nbsp; SPACE RIDE &nbsp;·&nbsp; SHIFT LAY LOW &nbsp;·&nbsp; H HORN</div>
+    <div id="hint">← → TURN &nbsp;·&nbsp; ↑ GAS &nbsp;·&nbsp; ↓ BRAKE &nbsp;·&nbsp; SPACE PARK &nbsp;·&nbsp; SHIFT LAY LOW &nbsp;·&nbsp; H GALLOP</div>
   </div>
 </div>
 
@@ -462,6 +462,10 @@ const DRIVABLE_LOT={lot:true, park:true};
 const TUNE={
   accel:78, brake:150, cruisePct:0.42, coastK:0.6,        // gas accel · brake decel · auto-cruise target · coast-to-cruise rate
   minSpdPct:0.18, minSpdFloor:22, laylowCapPct:0.20,      // KEEP MOVING floor (pct of top, hard floor) · LAY LOW creep cap
+  // THE HAND-OFF (Joe 1117): brake to a stop in the curb stop-zone, PARK (the parking brake), they walk over, PARK = accept.
+  // zoneR = the stop-zone radius (the old RIDE range) · parkMaxSpd = slow enough to set the brake · walkSpd = world u/s
+  // (a hustle, not a stroll: ~1.5 s from the corner) · walkMin/Max clamp the walk (fixed ticks: walk = curb distance / walkSpd).
+  zoneR:34, parkMaxSpd:6, walkSpd:46, walkMin:0.7, walkMax:2.2, parkGrace:1.4, doorR:15,   // parkGrace = s the held traffic keeps waiting while you pull out
   skidCapPct:0.42, skidWrongFail:0.55,                    // SKID ROW run: speed cap (go gentle) · wrong-way seconds before the run is lost
   steerRate:2.5, steerSpeedRef:34, worldScale:2.4,        // turn rate · speed where steering is full · mph -> world px/s
   // THE PALMDALE RUN — the rising forced floor that pushes, + the speed above which the road bites
@@ -579,6 +583,7 @@ if(typeof window!=='undefined' && window.addEventListener){           // re-fit 
 
 const G={
   mode:'boot', li:0, level:null, t:0,
+  park:null, walkers:[], handoffs:0, parkGrace:0,                 // THE HAND-OFF: the parking brake + who's walking (deterministic sim state)
   credits:0, stars:[], stuntPath:'none', stuntCard:false, lives:3, oneUps:2, gameover:false,
   // per level
   timeLeft:0, delivered:0, wrecks:0, complaints:0, busts:0, dispatchAt:null,
@@ -647,9 +652,9 @@ function drawPause(){
   veil(G.pauseHow?.86:.66);
   if(G.pauseHow){
     med('HOW TO DRIVE',H*0.16,getCss('--gold')); small('KEEP MOVING · NOT GO FAST',H*0.16+30,getCss('--amber'));
-    const L=[['STEER','← / →'],['GAS','↑ · Z · A'],['BRAKE','↓ · X · S — feather corners'],['RIDE','SPACE · ENTER — pickup / drop-off'],
-      ['LAY LOW','SHIFT · C — bleed heat, shake cops'],['HORN','H — the GALLOP: leapfrog traffic'],
-      ['PAD','stick steer · A gas · B brake · Y ride'],['','X lay low · LB horn · SELECT pause'],['PAUSE','ESC · P']];
+    const L=[['STEER','← / →'],['GAS','↑ · Z · A'],['BRAKE','↓ · X · S — feather corners'],['PARK','SPACE · ENTER — stop at the curb, then accept'],
+      ['LAY LOW','SHIFT · C — bleed heat, shake cops'],['GALLOP','H — leapfrog traffic'],
+      ['PAD','stick steer · A gas · B brake · Y park'],['','X lay low · LB gallop · SELECT pause'],['PAUSE','ESC · P']];
     ctx.font='bold 17px "Courier New",monospace';
     for(let i=0;i<L.length;i++){ const y=H*0.30+i*36; ctx.textAlign='right'; ctx.fillStyle=getCss('--gold'); ctx.fillText(L[i][0],W*0.24,y);
       ctx.textAlign='left'; ctx.fillStyle='#e8e8e8'; ctx.font='16px "Courier New",monospace'; ctx.fillText(L[i][1],W*0.24+18,y); ctx.font='bold 17px "Courier New",monospace'; }
@@ -669,7 +674,7 @@ function drawPause(){
 // deckIn() mirrors the keyboard handler exactly (continuous keys go through press() for menu-nav rising
 // edges, then set keys[]; ride/horn/start are edge actions). The caps already light via syncDeck().
 function deckIn(a,down){
-  if(a==='ride'){ if(down){ if(G.mode==='drive')attemptRide(); else press('start'); } return; }
+  if(a==='ride'){ if(down){ if(G.mode==='drive')rideBtn(); else press('start'); } return; }
   if(a==='horn'){ if(down){ if(G.mode==='drive')gallop(); else press('horn'); } return; }
   if(a==='start'){ if(down)press('start'); return; }
   if(down){ if(!keys[a])press(a); keys[a]=true; } else keys[a]=false;     // left/right/gas/brake/laylow
@@ -690,7 +695,7 @@ if(typeof document!=='undefined' && document.querySelector){      // (headless s
     st.addEventListener('pointerup',end); st.addEventListener('pointerleave',end); st.addEventListener('pointercancel',end); }
 }
 const _startBtn=(typeof document!=='undefined'&&document.getElementById)?document.getElementById('startbtn'):null;
-if(_startBtn&&_startBtn.addEventListener) _startBtn.addEventListener('click',()=>{ if(G.mode==='drive')attemptRide(); else press('start'); });
+if(_startBtn&&_startBtn.addEventListener) _startBtn.addEventListener('click',()=>{ if(G.mode==='drive')rideBtn(); else press('start'); });
 // PARENT-SHELL BRIDGE: cab_desktop's panel overlay posts {zebraBtn,down} -> drive the game from the cab art
 if(EMBED) addEventListener('message',e=>{ const d=e&&e.data; if(d&&d.zebraBtn) deckIn(d.zebraBtn,!!d.down); });
 // STAGE SELECT — mouse support (the jailbreak level select is point-and-click; the deck
@@ -747,7 +752,7 @@ function pollPad(){
   // RIDE / HORN / START edges — stored on _padNav too (pad is a numeric index and can't hold props:
   // the old pad._ride pattern silently no-op'd in the browser, re-firing every held frame).
   const ride=gp.buttons[GPB.ride]?.pressed||gp.buttons[5]?.pressed;
-  if(ride&&!_padNav.ride){ if(G.mode==='drive')attemptRide(); else press('start'); }
+  if(ride&&!_padNav.ride){ if(G.mode==='drive')rideBtn(); else press('start'); }
   _padNav.ride=ride;
   const horn=gp.buttons[GPB.horn]?.pressed;
   if(horn&&!_padNav.horn&&G.mode==='drive')gallop();
@@ -759,7 +764,7 @@ function pollPad(){
 function press(k){
   if(typeof CKBoot!=='undefined'&&CKBoot.held()) return;      // CK BOOT: ident / results hold (pads included)
   if(G.mode==='pause'){ pausePress(k); return; }
-  if(G.mode==='drive'){ if(k==='start')attemptRide(); else if(k==='horn')gallop(); return; }
+  if(G.mode==='drive'){ if(k==='start')rideBtn(); else if(k==='horn')gallop(); return; }
   if(G.mode==='select'){                                       // STAGE SELECT — jailbroken cab only
     const N=selectRows().length;
     if(k==='gas'||k==='left'){ G.selIdx=(G.selIdx-1+N)%N; sfx.cursor(); }
@@ -992,7 +997,11 @@ function tryImg(k,src){const i=new Image();i.onload=()=>IMG[k]=i;i.src=src;}
  'river/debris0','river/debris1','river/debris2',
  // debris3/4 = dumped SHOPPING CARTS (LA RIVER 2, cut 0924) — the grime the real channel is full of.
  // Top-down compatible, unlike that sheet's bridges, which are side ELEVATIONS (see PERSPECTIVE LAW).
- 'river/debris3','river/debris4'
+ 'river/debris3','river/debris4',
+ // PEOPLE (1117) — 3D-rendered walk sheets (3D PIPELINE/games/merc-zebra/blender/mz_people.py): 8 headings (rows, N first,
+ // clockwise) × 8 walk frames (cols), 64 px frames, feet at (32,56), 16 world units tall per frame. The hand-off walkers
+ // (runner = the restaurant kid with the bag · rider · customer · crew) + three sidewalk peds. Missing = procedural figure.
+ 'people/runner','people/rider','people/customer','people/crew','people/ped0','people/ped1','people/ped2',
 ].forEach(p=>tryImg(p,'assets/'+p+'.png'));
 const APT_SPRITES=['buildings/apt0','buildings/apt1','buildings/apt2','buildings/apt3','buildings/apt4'];
 // the SHOP POOL for GENERIC strip/plaza parcels — anonymous Valley storefronts. Selection mixes the mission
@@ -1049,6 +1058,7 @@ function loadLevel(){
   // fares or gates
   G.fares=[]; G.gates=[]; G.fareIdx=0;
   G.lastRide=null; G.military=[]; G.cycle=null;            // THE LAST RIDE state (final only)
+  G.park=null; G.walkers=[]; G.handoffs=0; G.parkGrace=0;                 // THE HAND-OFF (parking brake + walkers)
   const M=MISSIONS[G.li]||{};
   if(L.final){                                            // THE LAST RIDE — one ride: the wife, hauled into the deep desert
     const gc=(gx,gy,nm)=>({gx,gy,x:gx*CELL,y:gy*CELL,name:nm});
@@ -1066,7 +1076,7 @@ function loadLevel(){
       p.name = rest.length ? rest[i%rest.length] : 'PICKUP';
       d.name = (M.customers&&M.customers.length) ? M.customers[i%M.customers.length] : cornerName(M, d.gx, d.gy);
       anchorToPlace(p); anchorToPlace(d);                          // if the label names a real Valley business (Patty Melt, Penalty Box, Morale Corp…), drop the beacon AT it
-      G.fares.push({pickup:p, drop:d, phase:'pickup'});
+      G.fares.push({pickup:p, drop:d, phase:'pickup', kind:(i%2?'ride':'food')});   // kind = who walks the hand-off (no rng: a ride every other gig)
     } }
   // THE AIRPORT RIDE — the VIP fare: the LAST gig is the flyer to the terminal. Smooth (no wreck aboard)
   // tips +time. Just a flag on a normal fare; the comfort logic lives in attemptRide/wreck. Never a kill.
@@ -1693,6 +1703,88 @@ var L3 = (function(){
            _state:function(){ return {want:want, armed:armed, layer:layer, shown:shown, tail:TAIL, sets:sets}; } };
 })();
 
+/* ===================== MERC ZEBRA — V3D: THE DIGITAL VALLEY IN 3D (1117, render-only) =========================
+   *** In loving memory of Brian Joseph Eisenhard. ***
+   Inlined by lab/tools/make_lab.py next to lab3d.js. It only DRAWS: reads G / cam / IMG, never writes game state,
+   no G.rng, no Math.random. Built by blender/v3d_kits.py + v3d_post.py (docs/VALLEY3D-1117.md).
+     UNDER  the RING beyond the map edge (the 101 shoulder + billboards, NoHo arts strip, the LA River north, the 405 +
+            flyover, the HYSCORE galleria, the Ventura strip, the warehouses east): opaque chunks drawn right after the
+            plate (outside the map rect only — the plate clips to the map, the ring starts where it stops)
+     OVER   the tall pieces (A&P HQ, the pole signs, DTLA towers, the desert town): alpha sprites drawn after the player's
+            car. Each eases to a ghost (alpha .28) while the car or the live pickup/drop sits inside its body rect, so
+            the car and the fare are never hidden (the fade is a render-frame ease, not sim state).
+   Only on while the 3D layer is on (key 3). Sets arm only while NOT driving (the L3 latch rule: nothing pops mid-run).
+   URL: &v3d=0 (off) · &v3dk=ring,hq,signs,dtla,desert (only these; '-hq' drops one) · &v3dfade=0 · &v3dppl=0
+   key 6: the layer on/off, live.
+=============================================================================================================== */
+var V3D = (function(){
+  var M = {"version":1,"source":"blender/v3d_kits.py + v3d_post.py","oblique_T":0.75,"lods":[{"lod":"L0","zmin":1.5},{"lod":"L1","zmin":0}],"ring":{"day":[{"id":"ring_e0","kit":"ring","levels":"valley","rect":[1240,-64,1640,400],"files":{"L0":"v3d/day/ring_e0_L0.webp","L1":"v3d/day/ring_e0_L1.webp"},"px":[600,696]},{"id":"ring_e1","kit":"ring","levels":"valley","rect":[1240,400,1640,860],"files":{"L0":"v3d/day/ring_e1_L0.webp","L1":"v3d/day/ring_e1_L1.webp"},"px":[600,690]},{"id":"ring_e2","kit":"ring","levels":"valley","rect":[1240,860,1640,1320],"files":{"L0":"v3d/day/ring_e2_L0.webp","L1":"v3d/day/ring_e2_L1.webp"},"px":[600,690]},{"id":"ring_n0","kit":"ring","levels":"valley","rect":[-440,-520,-40,-64],"files":{"L0":"v3d/day/ring_n0_L0.webp","L1":"v3d/day/ring_n0_L1.webp"},"px":[600,684]},{"id":"ring_n1","kit":"ring","levels":"valley","rect":[-40,-520,440,-64],"files":{"L0":"v3d/day/ring_n1_L0.webp","L1":"v3d/day/ring_n1_L1.webp"},"px":[720,684]},{"id":"ring_n2","kit":"ring","levels":"valley","rect":[440,-520,920,-64],"files":{"L0":"v3d/day/ring_n2_L0.webp","L1":"v3d/day/ring_n2_L1.webp"},"px":[720,684]},{"id":"ring_n3","kit":"ring","levels":"valley","rect":[920,-520,1240,-64],"files":{"L0":"v3d/day/ring_n3_L0.webp","L1":"v3d/day/ring_n3_L1.webp"},"px":[480,684]},{"id":"ring_n4","kit":"ring","levels":"valley","rect":[1240,-520,1640,-64],"files":{"L0":"v3d/day/ring_n4_L0.webp","L1":"v3d/day/ring_n4_L1.webp"},"px":[600,684]},{"id":"ring_w0","kit":"ring","levels":"valley","rect":[-440,-64,-40,400],"files":{"L0":"v3d/day/ring_w0_L0.webp","L1":"v3d/day/ring_w0_L1.webp"},"px":[600,696]},{"id":"ring_w1","kit":"ring","levels":"valley","rect":[-440,400,-40,860],"files":{"L0":"v3d/day/ring_w1_L0.webp","L1":"v3d/day/ring_w1_L1.webp"},"px":[600,690]},{"id":"ring_w2","kit":"ring","levels":"valley","rect":[-440,860,-40,1320],"files":{"L0":"v3d/day/ring_w2_L0.webp","L1":"v3d/day/ring_w2_L1.webp"},"px":[600,690]}],"night":[{"id":"ring_e0","kit":"ring","levels":"valley","rect":[1240,-64,1640,400],"files":{"L0":"v3d/night/ring_e0_L0.webp","L1":"v3d/night/ring_e0_L1.webp"},"px":[600,696]},{"id":"ring_e1","kit":"ring","levels":"valley","rect":[1240,400,1640,860],"files":{"L0":"v3d/night/ring_e1_L0.webp","L1":"v3d/night/ring_e1_L1.webp"},"px":[600,690]},{"id":"ring_e2","kit":"ring","levels":"valley","rect":[1240,860,1640,1320],"files":{"L0":"v3d/night/ring_e2_L0.webp","L1":"v3d/night/ring_e2_L1.webp"},"px":[600,690]},{"id":"ring_n0","kit":"ring","levels":"valley","rect":[-440,-520,-40,-64],"files":{"L0":"v3d/night/ring_n0_L0.webp","L1":"v3d/night/ring_n0_L1.webp"},"px":[600,684]},{"id":"ring_n1","kit":"ring","levels":"valley","rect":[-40,-520,440,-64],"files":{"L0":"v3d/night/ring_n1_L0.webp","L1":"v3d/night/ring_n1_L1.webp"},"px":[720,684]},{"id":"ring_n2","kit":"ring","levels":"valley","rect":[440,-520,920,-64],"files":{"L0":"v3d/night/ring_n2_L0.webp","L1":"v3d/night/ring_n2_L1.webp"},"px":[720,684]},{"id":"ring_n3","kit":"ring","levels":"valley","rect":[920,-520,1240,-64],"files":{"L0":"v3d/night/ring_n3_L0.webp","L1":"v3d/night/ring_n3_L1.webp"},"px":[480,684]},{"id":"ring_n4","kit":"ring","levels":"valley","rect":[1240,-520,1640,-64],"files":{"L0":"v3d/night/ring_n4_L0.webp","L1":"v3d/night/ring_n4_L1.webp"},"px":[600,684]},{"id":"ring_w0","kit":"ring","levels":"valley","rect":[-440,-64,-40,400],"files":{"L0":"v3d/night/ring_w0_L0.webp","L1":"v3d/night/ring_w0_L1.webp"},"px":[600,696]},{"id":"ring_w1","kit":"ring","levels":"valley","rect":[-440,400,-40,860],"files":{"L0":"v3d/night/ring_w1_L0.webp","L1":"v3d/night/ring_w1_L1.webp"},"px":[600,690]},{"id":"ring_w2","kit":"ring","levels":"valley","rect":[-440,860,-40,1320],"files":{"L0":"v3d/night/ring_w2_L0.webp","L1":"v3d/night/ring_w2_L1.webp"},"px":[600,690]}]},"over":{"day":[{"id":"desert_gas","kit":"desert","levels":[9,10],"rect":[546,752,693,890],"files":{"L0":"v3d/day/desert_gas_L0.webp","L1":"v3d/day/desert_gas_L1.webp"},"px":[441,414],"body":[552.8000051325018,758.999993855303,647.2000208767978,883.3000009710139],"foot":[552.8000051325018,776.9999937577682,647.2000208767978,883.3000009710139]},{"id":"desert_hyscoreburgers","kit":"desert","levels":[9,10],"rect":[774,761,963,860],"files":{"L0":"v3d/day/desert_hyscoreburgers_L0.webp","L1":"v3d/day/desert_hyscoreburgers_L1.webp"},"px":[567,297],"body":[780.9999639337714,767.966396429322,898.9999944513495,853.1200235540217],"foot":[780.9999639337714,803.0000166459517,898.9999944513495,853.1200235540217]},{"id":"desert_motel","kit":"desert","levels":[9,10],"rect":[770,252,1010,427],"files":{"L0":"v3d/day/desert_motel_L0.webp","L1":"v3d/day/desert_motel_L1.webp"},"px":[720,525],"body":[776.9999937577682,258.49999893795365,914.9999618530273,420.4000126231801],"foot":[776.9999937577682,322.9999975724654,914.9999618530273,420.4000126231801]},{"id":"desert_silos","kit":"desert","levels":[9,10],"rect":[292,747,525,881],"files":{"L0":"v3d/day/desert_silos_L0.webp","L1":"v3d/day/desert_silos_L1.webp"},"px":[699,402],"body":[298.0000105771152,753.5000064156272,410.9999916770242,875.0],"foot":[298.0000105771152,836.0000090165572,410.9999916770242,875.0]},{"id":"desert_watertower","kit":"desert","levels":[9,10],"rect":[337,277,499,413],"files":{"L0":"v3d/day/desert_watertower_L0.webp","L1":"v3d/day/desert_watertower_L1.webp"},"px":[486,408],"body":[343.99999271739614,283.99998220530426,376.0000142184171,406.0000072826039],"foot":[343.99999271739614,373.99998578158295,376.0000142184171,406.0000072826039]},{"id":"hq_anders","kit":"hq","levels":"valley","rect":[47,269,488,684],"files":{"L0":"v3d/day/hq_anders_L0.webp","L1":"v3d/day/hq_anders_L1.webp"},"px":[1323,1245],"body":[53.0000003901395,275.86249871687454,186.99999289079148,677.2000139409846],"foot":[53.0000003901395,532.9999923706055,186.99999289079148,677.2000139409846]},{"id":"pole_pattymelt","kit":"signs","levels":"valley","rect":[142,850,273,926],"files":{"L0":"v3d/day/pole_pattymelt_L0.webp","L1":"v3d/day/pole_pattymelt_L1.webp"},"px":[393,228],"body":[148.20000258359042,856.4586531032215,183.80000374533915,919.2000302401457],"foot":[148.20000258359042,914.9999618530273,183.80000374533915,919.2000302401457]},{"id":"pole_penaltybox","kit":"signs","levels":"valley","rect":[864,135,987,206],"files":{"L0":"v3d/day/pole_penaltybox_L0.webp","L1":"v3d/day/pole_penaltybox_L1.webp"},"px":[369,213],"body":[870.1999837701972,141.9796875932,903.8000106811523,199.2000016299161],"foot":[870.1999837701972,194.9999982660467,903.8000106811523,199.2000016299161]},{"id":"pole_robs","kit":"signs","levels":"valley","rect":[390,374,509,446],"files":{"L0":"v3d/day/pole_robs_L0.webp","L1":"v3d/day/pole_robs_L1.webp"},"px":[357,216],"body":[396.2000066583807,380.4249858314341,423.799991607666,439.2000111666593],"foot":[396.2000066583807,434.9999861283736,423.799991607666,439.2000111666593]},{"id":"pole_taylors","kit":"signs","levels":"valley","rect":[874,614,988,686],"files":{"L0":"v3d/day/pole_taylors_L0.webp","L1":"v3d/day/pole_taylors_L1.webp"},"px":[342,216],"body":[880.2000392567028,620.4577115449039,903.8000106811523,679.1999990289862],"foot":[880.2000392567028,675.0000173395331,903.8000106811523,679.1999990289862]},{"id":"pole_valleysmoker","kit":"signs","levels":"valley","rect":[624,858,744,926],"files":{"L0":"v3d/day/pole_valleysmoker_L0.webp","L1":"v3d/day/pole_valleysmoker_L1.webp"},"px":[360,204],"body":[630.1999959078703,864.4590526819229,663.799979469993,919.2000302401457],"foot":[630.1999959078703,914.9999618530273,663.799979469993,919.2000302401457]}],"night":[{"id":"desert_gas","kit":"desert","levels":[9,10],"rect":[546,752,693,890],"files":{"L0":"v3d/night/desert_gas_L0.webp","L1":"v3d/night/desert_gas_L1.webp"},"px":[441,414],"body":[552.8000051325018,758.999993855303,647.2000208767978,883.3000009710139],"foot":[552.8000051325018,776.9999937577682,647.2000208767978,883.3000009710139]},{"id":"desert_hyscoreburgers","kit":"desert","levels":[9,10],"rect":[774,761,963,860],"files":{"L0":"v3d/night/desert_hyscoreburgers_L0.webp","L1":"v3d/night/desert_hyscoreburgers_L1.webp"},"px":[567,297],"body":[780.9999639337714,767.966396429322,898.9999944513495,853.1200235540217],"foot":[780.9999639337714,803.0000166459517,898.9999944513495,853.1200235540217]},{"id":"desert_motel","kit":"desert","levels":[9,10],"rect":[770,252,1010,427],"files":{"L0":"v3d/night/desert_motel_L0.webp","L1":"v3d/night/desert_motel_L1.webp"},"px":[720,525],"body":[776.9999937577682,258.49999893795365,914.9999618530273,420.4000126231801],"foot":[776.9999937577682,322.9999975724654,914.9999618530273,420.4000126231801]},{"id":"desert_silos","kit":"desert","levels":[9,10],"rect":[292,747,525,881],"files":{"L0":"v3d/night/desert_silos_L0.webp","L1":"v3d/night/desert_silos_L1.webp"},"px":[699,402],"body":[298.0000105771152,753.5000064156272,410.9999916770242,875.0],"foot":[298.0000105771152,836.0000090165572,410.9999916770242,875.0]},{"id":"desert_watertower","kit":"desert","levels":[9,10],"rect":[337,277,499,413],"files":{"L0":"v3d/night/desert_watertower_L0.webp","L1":"v3d/night/desert_watertower_L1.webp"},"px":[486,408],"body":[343.99999271739614,283.99998220530426,376.0000142184171,406.0000072826039],"foot":[343.99999271739614,373.99998578158295,376.0000142184171,406.0000072826039]},{"id":"dtla_0_0","kit":"dtla","levels":[11],"rect":[50,-203,490,188],"files":{"L0":"v3d/night/dtla_0_0_L0.webp","L1":"v3d/night/dtla_0_0_L1.webp"},"px":[1320,1173],"body":[56.99999765916304,-196.18488441814077,183.00000104037198,181.1199946836992],"foot":[56.99999765916304,71.00000164725564,183.00000104037198,181.1199946836992]},{"id":"dtla_0_1","kit":"dtla","levels":[11],"rect":[47,163,363,432],"files":{"L0":"v3d/night/dtla_0_1_L0.webp","L1":"v3d/night/dtla_0_1_L1.webp"},"px":[948,807],"body":[53.0000003901395,169.23794963143092,186.99999289079148,425.9999882091176],"foot":[53.0000003901395,308.9999935843728,186.99999289079148,425.9999882091176]},{"id":"dtla_0_2","kit":"dtla","levels":[11],"rect":[49,377,390,673],"files":{"L0":"v3d/night/dtla_0_2_L0.webp","L1":"v3d/night/dtla_0_2_L1.webp"},"px":[1023,888],"body":[55.000001733953304,383.73072038997304,185.00000780278987,666.3999990983443],"foot":[55.000001733953304,550.9999882091175,185.00000780278987,666.3999990983443]},{"id":"dtla_0_3","kit":"dtla","levels":[11],"rect":[49,632,374,913],"files":{"L0":"v3d/night/dtla_0_3_L0.webp","L1":"v3d/night/dtla_0_3_L1.webp"},"px":[975,843],"body":[55.000001733953304,638.9771916649559,185.00000780278987,906.3999869606712],"foot":[55.000001733953304,791.000019420277,185.00000780278987,906.3999869606712]},{"id":"dtla_0_4","kit":"dtla","levels":[11],"rect":[50,768,483,1148],"files":{"L0":"v3d/night/dtla_0_4_L0.webp","L1":"v3d/night/dtla_0_4_L1.webp"},"px":[1299,1140],"body":[56.99999765916304,774.1942351514643,183.00000104037198,1141.1199569702148],"foot":[56.99999765916304,1030.9999639337714,183.00000104037198,1141.1199569702148]},{"id":"dtla_1_0","kit":"dtla","levels":[11],"rect":[288,-91,618,193],"files":{"L0":"v3d/night/dtla_1_0_L0.webp","L1":"v3d/night/dtla_1_0_L1.webp"},"px":[990,852],"body":[294.9999895962802,-84.87093448638917,425.00001733953303,186.40000169927424],"foot":[294.9999895962802,71.00000164725564,425.00001733953303,186.40000169927424]},{"id":"dtla_1_1","kit":"dtla","levels":[11],"rect":[290,89,680,428],"files":{"L0":"v3d/night/dtla_1_1_L0.webp","L1":"v3d/night/dtla_1_1_L1.webp"},"px":[1170,1017],"body":[296.99999635869807,95.0627326965332,422.9999889026989,421.1199933832342],"foot":[296.99999635869807,311.00000034679067,422.9999889026989,421.1199933832342]},{"id":"dtla_1_2","kit":"dtla","levels":[11],"rect":[290,326,683,668],"files":{"L0":"v3d/night/dtla_1_2_L0.webp","L1":"v3d/night/dtla_1_2_L1.webp"},"px":[1179,1026],"body":[296.99999635869807,332.37898349761963,422.9999889026989,661.1199812455611],"foot":[296.99999635869807,550.9999882091175,422.9999889026989,661.1199812455611]},{"id":"dtla_1_3","kit":"dtla","levels":[11],"rect":[288,619,628,913],"files":{"L0":"v3d/night/dtla_1_3_L0.webp","L1":"v3d/night/dtla_1_3_L1.webp"},"px":[1020,882],"body":[294.9999895962802,625.877250324596,425.00001733953303,906.3999869606712],"foot":[294.9999895962802,791.000019420277,425.00001733953303,906.3999869606712]},{"id":"dtla_1_4","kit":"dtla","levels":[11],"rect":[288,885,601,1153],"files":{"L0":"v3d/night/dtla_1_4_L0.webp","L1":"v3d/night/dtla_1_4_L1.webp"},"px":[939,804],"body":[294.9999895962802,891.032170165669,425.00001733953303,1146.4000181718307],"foot":[294.9999895962802,1030.9999639337714,425.00001733953303,1146.4000181718307]},{"id":"dtla_2_0","kit":"dtla","levels":[11],"rect":[531,-162,931,188],"files":{"L0":"v3d/night/dtla_2_0_L0.webp","L1":"v3d/night/dtla_2_0_L1.webp"},"px":[1200,1050],"body":[537.0000058954413,-155.4333513433283,663.0000201138583,181.1199946836992],"foot":[537.0000058954413,71.00000164725564,663.0000201138583,181.1199946836992]},{"id":"dtla_2_1","kit":"dtla","levels":[11],"rect":[526,150,856,432],"files":{"L0":"v3d/night/dtla_2_1_L0.webp","L1":"v3d/night/dtla_2_1_L1.webp"},"px":[990,846],"body":[532.9999923706055,156.51215206493032,666.9999902898616,425.9999882091176],"foot":[532.9999923706055,308.9999935843728,666.9999902898616,425.9999882091176]},{"id":"dtla_2_2","kit":"dtla","levels":[11],"rect":[526,400,845,673],"files":{"L0":"v3d/night/dtla_2_2_L0.webp","L1":"v3d/night/dtla_2_2_L1.webp"},"px":[957,819],"body":[532.9999923706055,406.6764495589516,666.9999902898616,666.000019420277],"foot":[532.9999923706055,549.0000031211159,666.9999902898616,666.000019420277]},{"id":"dtla_2_3","kit":"dtla","levels":[11],"rect":[531,528,963,908],"files":{"L0":"v3d/night/dtla_2_3_L0.webp","L1":"v3d/night/dtla_2_3_L1.webp"},"px":[1296,1140],"body":[537.0000058954413,534.19429063797,663.0000201138583,901.1200124567206],"foot":[537.0000058954413,791.000019420277,663.0000201138583,901.1200124567206]},{"id":"dtla_3_0","kit":"dtla","levels":[11],"rect":[770,-151,1160,188],"files":{"L0":"v3d/night/dtla_3_0_L0.webp","L1":"v3d/night/dtla_3_0_L1.webp"},"px":[1170,1017],"body":[776.9999937577682,-144.9372660030018,902.9999646273527,181.1199946836992],"foot":[776.9999937577682,71.00000164725564,902.9999646273527,181.1199946836992]},{"id":"dtla_3_1","kit":"dtla","levels":[11],"rect":[770,86,1163,428],"files":{"L0":"v3d/night/dtla_3_1_L0.webp","L1":"v3d/night/dtla_3_1_L1.webp"},"px":[1179,1026],"body":[776.9999937577682,92.37899563529277,902.9999646273527,421.1199933832342],"foot":[776.9999937577682,311.00000034679067,902.9999646273527,421.1199933832342]},{"id":"dtla_3_2","kit":"dtla","levels":[11],"rect":[768,379,1108,673],"files":{"L0":"v3d/night/dtla_3_2_L0.webp","L1":"v3d/night/dtla_3_2_L1.webp"},"px":[1020,882],"body":[774.9999653209339,385.8772191134366,904.9999930641868,666.3999990983443],"foot":[774.9999653209339,550.9999882091175,904.9999930641868,666.3999990983443]},{"id":"dtla_3_3","kit":"dtla","levels":[11],"rect":[770,570,1158,908],"files":{"L0":"v3d/night/dtla_3_3_L0.webp","L1":"v3d/night/dtla_3_3_L1.webp"},"px":[1164,1014],"body":[776.9999937577682,576.8858411095359,902.9999646273527,901.1200124567206],"foot":[776.9999937577682,791.000019420277,902.9999646273527,901.1200124567206]},{"id":"dtla_3_4","kit":"dtla","levels":[11],"rect":[770,772,1199,1148],"files":{"L0":"v3d/night/dtla_3_4_L0.webp","L1":"v3d/night/dtla_3_4_L1.webp"},"px":[1287,1128],"body":[776.9999937577682,778.5624319856818,902.9999646273527,1141.1199569702148],"foot":[776.9999937577682,1030.9999639337714,902.9999646273527,1141.1199569702148]},{"id":"dtla_4_1","kit":"dtla","levels":[11],"rect":[1011,72,1417,428],"files":{"L0":"v3d/night/dtla_4_1_L0.webp","L1":"v3d/night/dtla_4_1_L1.webp"},"px":[1218,1068],"body":[1017.0000249689276,78.80324667150325,1142.9999958385122,421.1199933832342],"foot":[1017.0000249689276,311.00000034679067,1142.9999958385122,421.1199933832342]},{"id":"dtla_4_3","kit":"dtla","levels":[11],"rect":[1008,634,1332,913],"files":{"L0":"v3d/night/dtla_4_3_L0.webp","L1":"v3d/night/dtla_4_3_L1.webp"},"px":[972,837],"body":[1014.9999965320934,640.3510516340082,1145.0000242753463,906.3999869606712],"foot":[1014.9999965320934,791.000019420277,1145.0000242753463,906.3999869606712]},{"id":"hq_anders","kit":"hq","levels":"valley","rect":[47,269,488,684],"files":{"L0":"v3d/night/hq_anders_L0.webp","L1":"v3d/night/hq_anders_L1.webp"},"px":[1323,1245],"body":[53.0000003901395,275.86249871687454,186.99999289079148,677.2000139409846],"foot":[53.0000003901395,532.9999923706055,186.99999289079148,677.2000139409846]},{"id":"pole_pattymelt","kit":"signs","levels":"valley","rect":[142,850,273,926],"files":{"L0":"v3d/night/pole_pattymelt_L0.webp","L1":"v3d/night/pole_pattymelt_L1.webp"},"px":[393,228],"body":[148.20000258359042,856.4586531032215,183.80000374533915,919.2000302401457],"foot":[148.20000258359042,914.9999618530273,183.80000374533915,919.2000302401457]},{"id":"pole_penaltybox","kit":"signs","levels":"valley","rect":[864,135,987,206],"files":{"L0":"v3d/night/pole_penaltybox_L0.webp","L1":"v3d/night/pole_penaltybox_L1.webp"},"px":[369,213],"body":[870.1999837701972,141.9796875932,903.8000106811523,199.2000016299161],"foot":[870.1999837701972,194.9999982660467,903.8000106811523,199.2000016299161]},{"id":"pole_robs","kit":"signs","levels":"valley","rect":[390,374,509,446],"files":{"L0":"v3d/night/pole_robs_L0.webp","L1":"v3d/night/pole_robs_L1.webp"},"px":[357,216],"body":[396.2000066583807,380.4249858314341,423.799991607666,439.2000111666593],"foot":[396.2000066583807,434.9999861283736,423.799991607666,439.2000111666593]},{"id":"pole_taylors","kit":"signs","levels":"valley","rect":[874,614,988,686],"files":{"L0":"v3d/night/pole_taylors_L0.webp","L1":"v3d/night/pole_taylors_L1.webp"},"px":[342,216],"body":[880.2000392567028,620.4577115449039,903.8000106811523,679.1999990289862],"foot":[880.2000392567028,675.0000173395331,903.8000106811523,679.1999990289862]},{"id":"pole_valleysmoker","kit":"signs","levels":"valley","rect":[624,858,744,926],"files":{"L0":"v3d/night/pole_valleysmoker_L0.webp","L1":"v3d/night/pole_valleysmoker_L1.webp"},"px":[360,204],"body":[630.1999959078703,864.4590526819229,663.799979469993,919.2000302401457],"foot":[630.1999959078703,914.9999618530273,663.799979469993,919.2000302401457]}]},"kb":4487.6}, ROOT = window.MZ3D_ROOT || '';
+  var Q = (typeof location!=='undefined' && location.search) || '';
+  var want = !/[?&]v3d=0\b/.test(Q), FADE = !/[?&]v3dfade=0\b/.test(Q), PPL = !/[?&]v3dppl=0\b/.test(Q);
+  var km = Q.match(/[?&]v3dk=([^&]*)/), KON = null, KOFF = {};
+  if(km){ decodeURIComponent(km[1]).split(',').forEach(function(k){ k = k.trim(); if(!k) return;
+    if(k[0]==='-') KOFF[k.slice(1)] = 1; else (KON || (KON = {}))[k] = 1; }); }
+  function kitOn(k){ return (!KON || KON[k]) && !KOFF[k]; }
+  var S = {}, sets = {}, latched = {}, fade = {}, badgeT = 0, msg = '';
+  function load(key, file, set){ var s = sets[set] || (sets[set] = {need:0, have:0}); s.need++;
+    var im = new Image();
+    im.onload = function(){ var fin = function(){ im.ok = true; S[key] = im; s.have++; }; if(im.decode) im.decode().then(fin, fin); else fin(); };
+    im.onerror = function(){ s.have++; };
+    im.src = ROOT + file; }
+  function ready(set){ var s = sets[set]; return !!s && s.need>0 && s.have>=s.need; }
+  function forLevel(e, L){ return e.levels==='valley' ? L.zone==='valley' : (e.levels.indexOf ? e.levels.indexOf(G.li)>=0 : false); }
+  function light(L){ return L && L.night ? 'night' : 'day'; }
+  function setKey(L){ return light(L) + ':' + (L.zone==='valley' ? 'valley' : 'L' + G.li); }
+  function arm(L){ var sk = setKey(L); if(sets[sk] || !M) return;
+    var lt = light(L), all = (M.ring[lt]||[]).concat(M.over[lt]||[]);
+    all.forEach(function(e){ if(!forLevel(e, L) || !kitOn(e.kit)) return;
+      load(lt+'/'+e.id+'/L0', e.files.L0, sk); load(lt+'/'+e.id+'/L1', e.files.L1, sk); });
+    if(!sets[sk]) sets[sk] = {need:0, have:0}; }
+  function live(L){ return want && M && typeof L3!=='undefined' && L3.on() && L && latched[setKey(L)]; }
+  function tick(){ if(!M || typeof G==='undefined' || !G.level) return;
+    var L = G.level; arm(L);
+    var calm = G.mode!=='drive' || /[?&]scene=/.test(Q);
+    if(calm) for(var sk in sets) if(ready(sk)) latched[sk] = true;
+    if(!PPL && typeof IMG!=='undefined') for(var k in IMG) if(k.indexOf('people/')===0) delete IMG[k]; }
+  function img(L, e){ var lod = cam.z>=1.5 ? 'L0' : 'L1'; return S[light(L)+'/'+e.id+'/'+lod] || S[light(L)+'/'+e.id+'/L0']; }
+  function blit(im, r){ var a = W2S(r[0], r[1]), w = (r[2]-r[0])*cam.z, h = (r[3]-r[1])*cam.z;
+    if(a[0]>W || a[1]>H || a[0]+w<0 || a[1]+h<0) return false;
+    ctx.drawImage(im, a[0], a[1], w+0.5, h+0.5); return true; }
+
+  // UNDER: the ring, beyond the map rect (drawn outside it so the plate + Joe's art inside are untouched)
+  function under(L){ tick(); if(!live(L)) return;
+    var lt = light(L), rs = M.ring[lt]; if(!rs) return;
+    var a = W2S(-ROADH, -70), b = W2S(WMAX+ROADH, WMAX+ROADH);
+    ctx.save(); ctx.beginPath(); ctx.rect(-9, -9, W+18, H+18); ctx.rect(a[0], a[1], b[0]-a[0], b[1]-a[1]);   // everything minus the map (even-odd)
+    ctx.clip('evenodd'); ctx.imageSmoothingEnabled = true;
+    for(var i=0;i<rs.length;i++){ var e = rs[i]; if(!forLevel(e, L) || !kitOn(e.kit)) continue; var im = img(L, e); if(im) blit(im, e.rect); }
+    ctx.restore(); }
+
+  // OVER: the tall pieces, after the car — fading where the car or the live beacon is behind them
+  function target(){ var f = G.fares && G.fares[G.fareIdx]; if(!f || f.phase==='done') return null; return f.phase==='pickup' ? f.pickup : f.drop; }
+  function inside(r, x, y, pad){ return x>r[0]-pad && x<r[2]+pad && y>r[1]-pad && y<r[3]+pad; }
+  function over(L){ if(!live(L)) { badge(); return; }
+    var lt = light(L), os = M.over[lt]; if(!os) { badge(); return; }
+    var c = G.car, t = target(), dt = Math.min(0.1, rdt||0.016);
+    for(var i=0;i<os.length;i++){ var e = os[i]; if(!forLevel(e, L) || !kitOn(e.kit)) continue;
+      var im = img(L, e); if(!im) continue;
+      var hide = FADE && ((c && inside(e.body, c.x, c.y, 16)) || (t && inside(e.body, t.x, t.y, 20)));
+      var f = fade[e.id]; if(f==null) f = hide ? 0.28 : 1;
+      f += ((hide ? 0.28 : 1) - f) * Math.min(1, dt / 0.15 * 2.2); fade[e.id] = f;
+      ctx.save(); ctx.globalAlpha = f; ctx.imageSmoothingEnabled = true; blit(im, e.rect); ctx.restore(); }
+    badge(); }
+
+  function badge(){ if(badgeT<=0 || typeof ctx==='undefined') return; badgeT -= Math.min(0.1, rdt||0.016);
+    ctx.save(); ctx.font = 'bold 22px Menlo, monospace'; var w = ctx.measureText(msg).width + 28, h = 38, x = (W-w)/2, y = H*0.16 + 46;
+    ctx.globalAlpha = Math.min(1, badgeT*1.5); ctx.fillStyle = 'rgba(10,12,16,.78)'; ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = want ? '#2bd47f' : '#8f949c'; ctx.lineWidth = 2; ctx.strokeRect(x+1, y+1, w-2, h-2);
+    ctx.fillStyle = '#e9f5ee'; ctx.textBaseline = 'middle'; ctx.textAlign = 'center'; ctx.fillText(msg, W/2, y + h/2 + 1); ctx.restore(); }
+  if(typeof addEventListener!=='undefined') addEventListener('keydown', function(e){
+    if(e.code==='Digit6'){ want = !want; for(var sk in sets) if(ready(sk)) latched[sk] = true;
+      msg = want ? '3D VALLEY: ON' : '3D VALLEY: OFF'; badgeT = 1.8; } });
+  return { under:under, over:over, tick:tick, _state:function(){ return {want:want, fade:FADE, kon:KON, koff:KOFF, sets:sets, latched:latched}; } };
+})();
+
 function frame(now){
   let frameTime=(now-(last||now))/1000; last=now;
   if(frameTime>0.25) frameTime=0.25;        // ignore huge stalls (tab switch)
@@ -1716,7 +1808,9 @@ function updateDrive(dt){
   const laylow=keys.laylow;
   if(laylow && !G._laylowPrev) sfx.blink();                   // signal + pull over to go quiet
   G._laylowPrev=laylow;
-  const minSpd=laylow?0:Math.max(TUNE.minSpdFloor,top*TUNE.minSpdPct);
+  if(G.park && keys.gas) parkCancel("PULLED AWAY — HAND-OFF OFF");      // GAS while parked = drive off (the walker turns back)
+  // KEEP MOVING floor: lifted ONLY by LAY LOW, or (THE HAND-OFF) while the parking brake is set / you brake inside a stop zone
+  const minSpd=(laylow||handoffLift())?0:Math.max(TUNE.minSpdFloor,top*TUNE.minSpdPct);
   const cruise=top*TUNE.cruisePct;
   if(keys.gas)        car.spd+=TUNE.accel*dt;
   else if(keys.brake) car.spd-=TUNE.brake*dt;
@@ -1724,8 +1818,9 @@ function updateDrive(dt){
   if(laylow) car.spd=Math.min(car.spd,top*TUNE.laylowCapPct);
   if(G.skidRun && !G.skidRun.lost) car.spd=Math.min(car.spd,top*TUNE.skidCapPct);   // SKID ROW: go gentle
   car.spd=Math.max(minSpd,Math.min(top,car.spd));
+  if(G.park) car.spd=0;                                        // the parking brake holds
   // ---- THE PALMDALE RUN: the run pushes a rising speed floor; going fast breaks the car ----
-  if(L.run){
+  if(L.run && !handoffLift()){   // (THE HAND-OFF: pulled over in a stop zone, the run's push lets go)
     const prog=Math.max(0,Math.min(1,1-G.timeLeft/L.time));   // 0 at start -> 1 at the wire
     const floor=top*(TUNE.runFloorBase+prog*TUNE.runFloorSlope);// 30% -> 72%; only the last stretch forces the redline
     if(car.spd<floor) car.spd=floor;                           // can't drop below the push
@@ -1760,9 +1855,14 @@ function updateDrive(dt){
       const cx=c.vert?c.line:c.pos, cy=c.vert?c.pos:c.line, nx2=c.vert?c.line:np, ny2=c.vert?np:c.line;
       if(!closedAt(cx,cy) && closedAt(nx2,ny2)){ c.dir*=-1; np=c.pos; }
     }
+    if(G.park||G.parkGrace>0){ const hx=c.vert?c.line:np, hy=c.vert?np:c.line;   // THE HAND-OFF: traffic waits behind a parked Zebra (+ lets you pull out)
+      if(Math.hypot(hx-car.x,hy-car.y)<40 && Math.hypot(hx-car.x,hy-car.y)<Math.hypot((c.vert?c.line:c.pos)-car.x,(c.vert?c.pos:c.line)-car.y)) np=c.pos;
+      const ox=c.vert?c.line:c.pos, oy=c.vert?c.pos:c.line;                          // …and never drives through a walker on the curb->door path
+      const ws=G.park?[{x:G.park.wx,y:G.park.wy}].concat(G.walkers):G.walkers;
+      for(const w of ws){ const dn=Math.hypot(hx-w.x,hy-w.y); if(dn<22 && dn<Math.hypot(ox-w.x,oy-w.y)){ np=c.pos; break; } } }
     c.pos=np;
     const tx=c.vert?c.line:c.pos, ty=c.vert?c.pos:c.line, cdd=Math.hypot(tx-car.x,ty-car.y);
-    if(G.gallopT<=0 && !c.hitCd && cdd<26){ c.hitCd=1; wreck(); }                              // GALLOP = leapfrog, no crash
+    if(G.gallopT<=0 && !c.hitCd && cdd<26 && !(HANDOFF&&(G.park||G.parkGrace>0))){ c.hitCd=1; wreck(); }   // GALLOP = leapfrog, no crash · a parked / pulling-out Zebra gets yielded to
     else if(!c.nearCd && cdd>=26 && cdd<48 && car.spd>top*0.42){ c.nearCd=1.4; sfx.jink(); }   // squeaked past one
     if(c.hitCd){ c.hitCd-=dt; if(c.hitCd<0)c.hitCd=0; }
     if(c.nearCd){ c.nearCd-=dt; if(c.nearCd<0)c.nearCd=0; }
@@ -1856,6 +1956,8 @@ function updateDrive(dt){
     if(f && f.phase!=='done'){ const tgt=f.phase==='pickup'?f.pickup:f.drop;   // a delivered fare lights nothing
       if(Math.hypot(tgt.x-car.x,tgt.y-car.y)<34) G.rideHere=true; }
   } else updateGates(dt);
+  updateHandoff(dt);                                           // THE HAND-OFF walkers (fixed ticks)
+  if(G.parkGrace>0){ G.parkGrace-=dt; if(G.parkGrace<0) G.parkGrace=0; }
   G.bladesHere=false;
   if(G.blades && G.blades.phase!=='done'){ const bt=G.blades.phase==='pickup'?G.blades.pickup:G.blades.drop;
     if(Math.hypot(bt.x-car.x,bt.y-car.y)<34) G.bladesHere=true; }
@@ -1892,6 +1994,91 @@ function updateDrive(dt){
   if(G.timeLeft<=0){ G.timeLeft=0; finishLevel(); return; }
   if(G.delivered>=L.fares&&!G.rideActive){ finishLevel(); return; }
 }
+/* ---------- THE HAND-OFF (Joe 1117) — "you must brake and wait for the game to bring to the car and accept the pickup" ----------
+   The RIDE button is now PARK (the parking brake). Flow, at any pickup or drop-off:
+     1 brake to a stop inside the curb STOP ZONE (zoneR of the beacon; the KEEP MOVING floor lifts only there, only on BRAKE)
+     2 PARK  -> the parking brake sets (car pinned at 0), the walker sets off from the curb (runner with the bag / the rider /
+                the customer), or — a ride's drop-off — the rider gets out and walks to the curb
+     3 PARK again once they've arrived -> ACCEPT: the old attemptRide() transaction runs, the brake releases, you go.
+   GAS while parked pulls away and cancels (the walker turns back); a shove off the spot (Jackie, a wreck) cancels too.
+   Heat while parked: the ordinary idle bleed (you're not reckless) — but a cop already on you keeps closing and still
+   busts on contact, Jackie keeps hunting, and the clock runs. Stopping is safe from NEW heat, never from the chase.
+   Deterministic: no rng; walk time = curb distance / walkSpd in fixed ticks. ?handoff=0 = the old drive-through RIDE. */
+const HANDOFF = !((typeof location!=='undefined') && /[?&]handoff=0\b/.test(location.search||''));
+function stopTarget(){                                          // what a PARK here would hand off (mirrors attemptRide's targeting)
+  const L=G.level, c=G.car; if(!L||L.allgreens) return null;
+  if(G.blades && G.blades.phase!=='done'){ const bt=G.blades.phase==='pickup'?G.blades.pickup:G.blades.drop;
+    if(Math.hypot(bt.x-c.x,bt.y-c.y)<TUNE.zoneR) return {pt:bt, blades:true, phase:G.blades.phase}; }
+  const f=G.fares[G.fareIdx]; if(!f||f.phase==='done') return null;
+  const t=f.phase==='pickup'?f.pickup:f.drop;
+  return Math.hypot(t.x-c.x,t.y-c.y)<TUNE.zoneR ? {pt:t, fare:f, phase:f.phase} : null; }
+function handoffLift(){ return HANDOFF && (!!G.park || (!!keys.brake && !!stopTarget())); }
+function handoffWho(st){                                        // who walks: runner (food out) · customer (food in) · rider · crew (blades)
+  if(st.blades) return 'crew';
+  const f=st.fare, ride=f.kind==='ride'||f.vip||f.wife||f.theater;
+  return ride ? 'rider' : (st.phase==='pickup' ? 'runner' : 'customer'); }
+// the curb point with a CLEAR walk to the car door (Joe 1117: walkers never pass through a double-parked car):
+// slide along the curb in 28-unit steps until the curb->door line clears every G.parked car by 13
+function segD(px,py,ax,ay,bx,by){ const vx=bx-ax, vy=by-ay, l2=vx*vx+vy*vy||1, k=Math.max(0,Math.min(1,((px-ax)*vx+(py-ay)*vy)/l2));
+  return Math.hypot(px-(ax+vx*k),py-(ay+vy*k)); }
+function clearCurb(t,c){ const cb=curbPt(t,c); if(!G.parked||!G.parked.length) return cb;
+  const ns=Math.abs(c.x-t.x)<=Math.abs(c.y-t.y);
+  for(const sh of [0,28,-28,56,-56]){ const q={x:cb.x+(ns?0:sh), y:cb.y+(ns?sh:0)};
+    if(q.x<0||q.x>WMAX||q.y<0||q.y>WMAX) continue;
+    if(G.parked.every(p=>segD(p.x,p.y,q.x,q.y,c.x,c.y)>13)) return q; }
+  return cb; }
+function curbPt(t,c){                                           // the sidewalk beside the car at this corner (where they come from)
+  const sx=(c.x>=t.x)?1:-1, sy=(c.y>=t.y)?1:-1, off=ROADH+7;
+  let fx, fy;
+  if(Math.abs(c.x-t.x)<=Math.abs(c.y-t.y)){ fx=t.x+sx*off; fy=t.y+sy*Math.max(off,Math.abs(c.y-t.y)); }   // on the N-S road
+  else { fy=t.y+sy*off; fx=t.x+sx*Math.max(off,Math.abs(c.x-t.x)); }                                    // on the E-W road
+  if(fx<0||fx>WMAX) fx=t.x-(fx-t.x); if(fy<0||fy>WMAX) fy=t.y-(fy-t.y);                               // map edge: the other side
+  return {x:fx,y:fy}; }
+// the AI drivers (attract demo · balance harness): KEYS before the tick (brake into the zone, hold while parked),
+// PRESS after it (set the brake once stopped, accept once they've arrived). Fares only (never stops for the blades).
+function aiHandoffKeys(){ if(!HANDOFF) return;
+  if(G.park || (G.rideHere && stopTarget() && !stopTarget().blades)){ keys.gas=false; keys.brake=true; } }
+function aiHandoffPress(){
+  if(!HANDOFF){ if(G.rideHere) attemptRide(); return; }
+  if(G.park){ if(G.park.t>=G.park.need) parkPress(); return; }
+  const st=G.rideHere&&stopTarget(); if(st && !st.blades && G.car.spd<=TUNE.parkMaxSpd) parkPress(); }
+function rideBtn(){ return HANDOFF ? parkPress() : attemptRide(); }   // every PARK/RIDE input (keys · deck · pad · touch) lands here
+function parkPress(){
+  const L=G.level; if(!L||L.allgreens) return;
+  const c=G.car;
+  if(G.park){ const p=G.park;
+    if(p.t<p.need){ G.toast={text:p.out?"HOLD IT — THEY'RE GETTING OUT":(p.who==='rider'?"HOLD IT — THEY'RE WALKING OVER":"HOLD IT — IT'S COMING OUT"),t:.8}; blip(150,.05,'square',.06); return; }
+    // ACCEPT — run the old transaction exactly; a refusal (the Queen's beam is shut) keeps you parked, walker waiting
+    const f=G.fares[G.fareIdx], ph0=p.blades?G.blades.phase:(f&&f.phase), idx0=G.fareIdx, mode0=G.mode;
+    G.park=null; G.parkGrace=TUNE.parkGrace;
+    if(p.blades) bladesAction(); else attemptRide();
+    const ph1=p.blades?G.blades.phase:(f&&f.phase);
+    if(ph1===ph0 && G.fareIdx===idx0 && G.mode===mode0){ G.park=p; return; }
+    G.handoffs++;
+    if(p.who==='runner'||p.who==='customer'||p.who==='crew')                      // the bag/blades changed hands: they head back in
+      G.walkers.push({x:p.wx,y:p.wy,tx:p.fx,ty:p.fy,who:p.who==='customer'?'customer':p.who,bag:p.who==='customer',t:0});
+    else if(p.out) G.walkers.push({x:p.wx,y:p.wy,tx:p.fx+(p.fx-p.cx)*1.6,ty:p.fy+(p.fy-p.cy)*1.6,who:'rider',t:0});  // dropped rider walks off
+    return; }
+  const st=stopTarget();
+  if(!st){ attemptRide(); return; }                              // out of range: the old "NO RIDE IN RANGE" (theater done = no-op)
+  if(c.spd>TUNE.parkMaxSpd){ G.toast={text:"BRAKE TO A STOP AT THE CURB — THEN PARK",t:.9}; blip(160,.05,'square',.07); return; }
+  const who=handoffWho(st), cb=clearCurb(st.pt,c), out=(who==='rider' && st.phase!=='pickup');
+  const d=Math.hypot(cb.x-c.x,cb.y-c.y), need=Math.max(TUNE.walkMin,Math.min(TUNE.walkMax,d/TUNE.walkSpd)), dr=Math.min(1,TUNE.doorR/(d||1));
+  G.park={cx:c.x,cy:c.y,fx:cb.x,fy:cb.y,wx:out?c.x+(cb.x-c.x)*dr:cb.x,wy:out?c.y+(cb.y-c.y)*dr:cb.y,t:0,need,who,out,blades:!!st.blades,phase:st.phase};
+  c.spd=0; c.shake=Math.max(c.shake||0,0.25); sfx.blink();
+  G.toast=null; }   // (the parked HUD line says who's coming)
+function parkCancel(why){ const p=G.park; if(!p) return; G.park=null; G.parkGrace=TUNE.parkGrace;
+  if(!p.out) G.walkers.push({x:p.wx,y:p.wy,tx:p.fx,ty:p.fy,who:p.who,bag:p.who==='runner',t:0});   // the walker turns back to the curb
+  if(why) G.toast={text:why,t:1}; }
+function updateHandoff(dt){
+  if(G.park){ const p=G.park, c=G.car;
+    if(Math.hypot(c.x-p.cx,c.y-p.cy)>3) parkCancel("SHOVED OFF THE CURB — HAND-OFF OFF");
+    else { p.t=Math.min(p.need,p.t+dt); const k=p.t/p.need, ax=p.out?p.cx:p.fx, ay=p.out?p.cy:p.fy, bx=p.out?p.fx:p.cx, by=p.out?p.fy:p.cy;
+      const L_=Math.hypot(bx-ax,by-ay)||1, d0=Math.min(1,TUNE.doorR/L_), u=p.out?d0+(1-d0)*k:(1-d0)*k;          // the DOOR (doorR off the car's centre): walk up to it / step out of it, never under the car
+      p.wx=ax+(bx-ax)*u; p.wy=ay+(by-ay)*u;
+      if(p.t>=p.need && !p.ready){ p.ready=true; sfx.ping(); } } }
+  for(let i=G.walkers.length-1;i>=0;i--){ const w=G.walkers[i], dx=w.tx-w.x, dy=w.ty-w.y, d=Math.hypot(dx,dy), s=TUNE.walkSpd*0.8*dt;
+    w.t+=dt; if(d<=s||w.t>4){ G.walkers.splice(i,1); continue; } w.x+=dx/d*s; w.y+=dy/d*s; } }
 function attemptRide(){
   const L=G.level;
   if(L.allgreens){ return; }
@@ -1902,7 +2089,7 @@ function attemptRide(){
   }
   const f=G.fares[G.fareIdx]; if(!f)return;
   const tgt=f.phase==='pickup'?f.pickup:f.drop;
-  if(Math.hypot(tgt.x-G.car.x,tgt.y-G.car.y)>=34){ G.toast={text:"NO RIDE IN RANGE",t:.7}; blip(160,.05,'square',.07); return; }
+  if(Math.hypot(tgt.x-G.car.x,tgt.y-G.car.y)>=34){ G.toast={text:"NO PICKUP OR DROP HERE",t:.7}; blip(160,.05,'square',.07); return; }
   if(f.wife){                                                  // THE LAST RIDE — not a gig; no complaint, no ★
     if(f.phase==='pickup'){ f.phase='ride'; sfx.pickup(); beamAt(f.pickup,'white');
       G.cycle={x:f.pickup.x,y:f.pickup.y,ang:G.car.ang};       // the man falls in behind on the motorcycle
@@ -1969,10 +2156,10 @@ function wreck(){ sfx.crash(); G.wrecks++; G.car.spd*=0.4; damageHit(TUNE.dmgWre
   if(G.vipAboard && !G.vipRough){ G.vipRough=true; G.toast={text:"EASY — THE VIP! (no tip now)",t:1.8}; } }   // AIRPORT VIP: a wreck rattles them, no tip
 function damageHit(amt,label){ G.damage+=amt; G.car.shake=1;
   G.toast={text:label+"!",t:1}; if(G.damage>=100){ if(G.cheats.infiniteCars)G.damage=99; else loseLife(); } }
-function loseLife(){ G.lives--; G.damage=0; G.heat=0; G.copOn=false; G.cops=[];
+function loseLife(){ if(G.park) parkCancel(null); G.lives--; G.damage=0; G.heat=0; G.copOn=false; G.cops=[];
   if(G.lives<=0){ G.toast={text:"TOTALED.",t:1.5}; }
   else { sfx.bust(); G.toast={text:"TOTALED — "+G.lives+" LEFT",t:1.8}; G.car.spd=0; } }
-function busted(){ sfx.bust(); G.busts++; G.timeLeft-=TUNE.bustTime; G.heat=TUNE.bustHeat; G.copOn=false; G.cops=[];
+function busted(){ if(G.park) parkCancel(null); sfx.bust(); G.busts++; G.timeLeft-=TUNE.bustTime; G.heat=TUNE.bustHeat; G.copOn=false; G.cops=[];
   damageHit(TUNE.dmgBust,'BUSTED  −5s'); }
 // JACKIE BOYE — the Repo Man. Odds ramp to guaranteed (Dave analog). He hunts the
 // car to TOTAL it (damage), can't be shaken by LAY LOW; you outrun him or survive the level.
@@ -2171,7 +2358,7 @@ function drawScene(){
   const bg=ctx.createLinearGradient(0,0,0,H); bg.addColorStop(0,g0); bg.addColorStop(1,g1);
   ctx.fillStyle=bg; ctx.fillRect(0,0,W,H);
   drawValleyEdges(L);            // ridgeline + sun-gap beyond the map = your compass
-  if(L3.plateOn(L)) L3.ground(L);   // LAB3D: the Blender plate under Joe's art (or the full comic world)
+  if(L3.plateOn(L)) { L3.ground(L); V3D.under(L); }   // LAB3D: the Blender plate under Joe's art (or the full comic world)
   else {
   drawRoads(L);
   if(streetTilesOn()) drawStreetTiles(L);   // gated (?streets=1): Joe's traced asphalt over the grid
@@ -2187,6 +2374,7 @@ function drawScene(){
   if(L.theater) drawCourtesy();  // the Regent's marquee — the warmest thing in the level
   drawClouds(L);                 // MAY GRAY sky — marine wash + drifting cloud-shadows (over ground+buildings, under the action)
   drawPeds(L);
+  drawHandoff(L);                // THE HAND-OFF: stop zone, walker, the bag (1117)
   if(L.allgreens) drawGates();
   drawStreetNames(L);            // the real Valley street names, painted on the asphalt — how you learn WHERE you are
   drawPlaceLabels(L);            // persistent diegetic signs over the named businesses (so the Valley reads as real places)
@@ -2205,6 +2393,7 @@ function drawScene(){
   if(G.mode==='drive') drawSpeedFX(L);                                                 // anime speed-streak + redline wheels (behind the car)
   if(G.gallopT>0) drawGallopAura();
   drawCar(G.car,'player');
+  V3D.over(L);                 // LAB3D V3D: the tall pieces over the car (fading where it hides the car / the fare)
   if(L.final) drawChoppers();                                                           // military drills overhead
   if(!L.allgreens) drawArrow(L);
   if(spriteFleetOn()){ drawFX(L); drawFreewaySing(L); drawLighting(L); drawShowcaseGrade(L); }  // MAY GRAY showcase juice
@@ -3317,7 +3506,43 @@ function drawTower(p,sx,sy,w,h,L){ const z=cam.z, m=3*z, seed=(p.v*131|0);
   ctx.fillStyle='#0a0c14'; ctx.fillRect(rx,ry,rw,rh);                    // rooftop cap (HVAC)
   ctx.fillStyle='rgba(199,125,255,.9)'; ctx.beginPath();ctx.arc(rx+rw*0.5,ry+rh*0.5,Math.max(1.5,2.4*z),0,7);ctx.fill(); // beacon
 }
+// one person: the 3D walk sheet if loaded (heading -> row, walk phase -> col), else the procedural figure. Render-only.
+const PEOPLE_FRAME=64, PEOPLE_FOOT=56, PEOPLE_WU=16;
+function drawPerson(x,y,hd,key,ph,moving,col){ const [sx,sy]=W2S(x,y), z=cam.z; if(sx<-30||sy<-40||sx>W+30||sy>H+30) return;
+  const im=IMG['people/'+key];
+  if(im && im.width>=PEOPLE_FRAME*8){ let a=hd%(2*Math.PI); if(a<0)a+=2*Math.PI;
+    const row=Math.round(a/(Math.PI/4))%8, c=moving?(Math.floor(ph)%8+8)%8:0, s=PEOPLE_WU*z/PEOPLE_FRAME;
+    ctx.drawImage(im,c*PEOPLE_FRAME,row*PEOPLE_FRAME,PEOPLE_FRAME,PEOPLE_FRAME, sx-PEOPLE_FRAME*s/2, sy-PEOPLE_FOOT*s, PEOPLE_FRAME*s, PEOPLE_FRAME*s); return; }
+  const bob=moving?Math.sin(ph*Math.PI/2)*1.2:0;
+  ctx.fillStyle='rgba(0,0,0,.25)'; ctx.beginPath(); ctx.ellipse(sx,sy,3*z,1.4*z,0,0,7); ctx.fill();
+  ctx.fillStyle=col||'#2a2f36'; ctx.fillRect(sx-2*z,sy-9*z+bob,4*z,9*z);
+  ctx.beginPath(); ctx.arc(sx,sy-10.5*z+bob,2.3*z,0,7); ctx.fill(); }
+const WHO_COL={runner:'#b8322a',rider:'#3a4f7a',customer:'#6a5a3a',crew:'#c88a1c'};
+// THE HAND-OFF — the curb stop-zone (white passenger-loading curb + a ring), the walker, the bag. Render-only.
+function drawHandoff(L){ if(!HANDOFF || L.allgreens) return; const z=cam.z;
+  const f=G.fares[G.fareIdx], tgt=(f&&f.phase!=='done')?(f.phase==='pickup'?f.pickup:f.drop):null;
+  if(tgt && Math.hypot(tgt.x-G.car.x,tgt.y-G.car.y)<260){ const [tx,ty]=W2S(tgt.x,tgt.y), r=TUNE.zoneR*z;
+    const inZ=Math.hypot(tgt.x-G.car.x,tgt.y-G.car.y)<TUNE.zoneR;
+    ctx.save(); ctx.lineWidth=Math.max(1.5,1.6*z); ctx.setLineDash([5*z,4*z]); ctx.lineDashOffset=-G.t*14;
+    ctx.strokeStyle=inZ?'rgba(255,45,158,.95)':'rgba(255,255,255,.75)'; ctx.beginPath(); ctx.arc(tx,ty,r,0,7); ctx.stroke(); ctx.setLineDash([]);
+    ctx.strokeStyle='rgba(245,245,240,.9)'; ctx.lineWidth=Math.max(2,2.2*z); const o=(ROADH+1)*z, k=16*z;    // LA white curb = passenger loading
+    for(const sx2 of [-1,1]) for(const sy2 of [-1,1]){ ctx.beginPath(); ctx.moveTo(tx+sx2*o,ty+sy2*(o+k)); ctx.lineTo(tx+sx2*o,ty+sy2*o); ctx.lineTo(tx+sx2*(o+k),ty+sy2*o); ctx.stroke(); }
+    if(!G.park){ ctx.font='bold '+Math.round(Math.max(11,6*z))+'px "Courier New",monospace'; ctx.textAlign='center'; ctx.fillStyle=inZ?'#ff2d9e':'rgba(255,255,255,.85)';
+      ctx.fillText('P',tx,ty-r-3*z); }
+    ctx.restore(); }
+  const p=G.park;
+  if(p){ const hd=Math.atan2((p.out?p.fx:p.cx)-p.wx,-((p.out?p.fy:p.cy)-p.wy)), mv=p.t<p.need;
+    drawPerson(p.wx,p.wy,hd,p.who,G.t*9,mv,WHO_COL[p.who]);
+    if((p.who==='runner'||p.who==='crew') && !IMG['people/'+p.who]){ const [bx,by]=W2S(p.wx,p.wy);   // (the 3D sheets carry their own bag / crate) ctx.fillStyle=p.who==='crew'?'#d8d2c0':'#c9a46a';
+      ctx.fillRect(bx+1.5*z,by-6*z,3.2*z,3.6*z); }                                                      // the bag / the blade crate
+    if(!mv){ const [bx,by]=W2S(p.wx,p.wy); ctx.save(); ctx.globalAlpha=0.5+0.5*Math.sin(G.t*8); ctx.fillStyle='#ff2d9e';
+      ctx.beginPath(); ctx.arc(bx,by-15*z,2.2*z,0,7); ctx.fill(); ctx.restore(); } }                    // ready: the magenta ACCEPT pip
+  for(const w of G.walkers){ const hd=Math.atan2(w.tx-w.x,-(w.ty-w.y)); drawPerson(w.x,w.y,hd,w.who,G.t*9+w.t,true,WHO_COL[w.who]);
+    if(w.bag && !IMG['people/'+w.who]){ const [bx,by]=W2S(w.x,w.y); ctx.fillStyle='#c9a46a'; ctx.fillRect(bx+1.5*z,by-6*z,3.2*z,3.6*z); } }
+}
 function drawPeds(L){ const z=cam.z;
+  if(IMG['people/ped0']){ for(let i=0;i<G.peds.length;i++){ const p=G.peds[i];
+      drawPerson(p.x,p.y,p.vert?(p.dir>0?Math.PI:0):(p.dir>0?Math.PI/2:-Math.PI/2),'ped'+(i%3),p.ph*1.3,true); } return; }
   for(const p of G.peds){ const [sx,sy]=W2S(p.x,p.y); if(sx<-10||sy<-10||sx>W+10||sy>H+10)continue;
     const bob=Math.sin(p.ph)*1.5;
     ctx.fillStyle=L.night?'#cdd3da':'#2a2f36';
@@ -3842,7 +4067,7 @@ function drawHUD(){
   const cx=W/2;
   bar(cx-90,16,180,12,G.heat/100,'HEAT', heatCol(G.heat));
   bar(cx-90,40,180,10,G.damage/100,'DAMAGE', getCss('--hot'));
-  bar(cx-90,56,180,8, G.hornBroken?1:G.horn/100, G.hornBroken?'HORN BLOWN':'HORN', G.hornBroken?getCss('--hot'):'#cdd3da');
+  bar(cx-90,56,180,8, G.hornBroken?1:G.horn/100, G.hornBroken?'GALLOP BLOWN':'GALLOP', G.hornBroken?getCss('--hot'):'#cdd3da');
   ctx.font='bold 18px "Courier New",monospace'; ctx.fillStyle=getCss('--gold'); ctx.textAlign='center';
   ctx.fillText('CAR '+'▰'.repeat(Math.max(0,G.lives)), cx, 72); ctx.textAlign='left';
   if(G.copOn){ ctx.fillStyle=Math.sin(G.t*10)>0?getCss('--hot'):getCss('--cyan'); ctx.textAlign='center';
@@ -3862,10 +4087,13 @@ function drawHUD(){
   ctx.font='bold 18px "Courier New",monospace'; ctx.fillStyle=getCss('--ink-dim'); ctx.fillText('MPH',W-22,H-30);
   ctx.textAlign='left';
   if(keys.laylow){ ctx.fillStyle=getCss('--cyan'); ctx.font='bold 15px "Courier New",monospace'; ctx.fillText('▼ LAYING LOW',W-150,H-60); }
+  if(HANDOFF && G.park){ ctx.save(); ctx.fillStyle='#1a0610'; ctx.strokeStyle='#ff2d9e'; ctx.lineWidth=3;            // the PARKING BRAKE lamp
+    ctx.beginPath(); ctx.arc(W-190,H-62,17,0,7); ctx.fill(); ctx.stroke(); ctx.fillStyle='#ff2d9e'; ctx.font='bold 22px "Courier New",monospace';
+    ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('P',W-190,H-61); ctx.restore(); }
   // RIDE prompt
   if(G.bladesHere){ ctx.textAlign='center'; ctx.fillStyle=Math.sin(G.t*7)>-.3?getCss('--amber'):'rgba(0,0,0,0)';
     ctx.font='bold 19px "Courier New",monospace';
-    ctx.fillText(G.blades.phase==='pickup'?'MOJAVE BLADES — RIDE TO LOAD':'AIRFIELD — RIDE TO DROP BLADES',W/2,H*0.39); ctx.textAlign='left'; }
+    ctx.fillText(G.blades.phase==='pickup'?'MOJAVE BLADES — PARK TO LOAD':'AIRFIELD — PARK TO DROP BLADES',W/2,H*0.39); ctx.textAlign='left'; }
   // ZEEEE DISPATCH — the new gig announces itself, so deliver -> next order reads as a BEAT.
   { const da=dispatchAge(), nf=G.fares[G.fareIdx];
     if(da!=null && nf && nf.phase!=='done' && !L.allgreens){
@@ -3876,10 +4104,18 @@ function drawHUD(){
       ctx.font='13px "Courier New",monospace'; ctx.fillStyle='#e7eaee';
       ctx.fillText((nf.pickup.name||'a fare')+'  —  pick up', W/2, H*0.30+22);
       ctx.restore(); } }
-  if(G.rideHere && !L.allgreens && G.fares[G.fareIdx]){ const f=G.fares[G.fareIdx]; ctx.textAlign='center';
+  if(HANDOFF && G.park){ const p=G.park, ready=p.t>=p.need; ctx.textAlign='center';      // THE HAND-OFF: parked — the walk, then ACCEPT
+    ctx.font='bold 22px "Courier New",monospace';
+    const py=H*0.68; ctx.fillStyle='rgba(6,8,12,.72)'; rr(W/2-235,py-28,470,74,10); ctx.fill();
+    if(ready){ ctx.fillStyle=Math.sin(G.t*9)>-.2?'#ff2d9e':'#ffe9f5'; ctx.fillText('ACCEPT  ▸ PARK', W/2, py); }
+    else { ctx.fillStyle=getCss('--gold'); ctx.fillText(p.out?'GETTING OUT…':p.who==='runner'?'ORDER COMING OUT…':p.who==='customer'?'HERE THEY COME…':p.who==='crew'?'LOADING…':'RIDER WALKING OVER…', W/2, py);
+      ctx.fillStyle='rgba(0,0,0,.55)'; ctx.fillRect(W/2-90,py+14,180,8); ctx.fillStyle='#ff2d9e'; ctx.fillRect(W/2-90,py+14,180*p.t/p.need,8); }
+    ctx.font='bold 13px "Courier New",monospace'; ctx.fillStyle='#e8e8e8'; ctx.fillText('PARKING BRAKE ON · GAS = pull away (cancels)', W/2, py+36); ctx.textAlign='left'; }
+  else if(G.rideHere && !L.allgreens && G.fares[G.fareIdx]){ const f=G.fares[G.fareIdx]; ctx.textAlign='center';
     ctx.fillStyle=Math.sin(G.t*7)>-.3?getCss('--gold'):'rgba(0,0,0,0)';
     ctx.font='bold 22px "Courier New",monospace';
-    ctx.fillText((f.phase==='pickup'?'PICK UP · '+(f.pickup.name||''):'DROP OFF · '+(f.drop.name||''))+'  ▸ RIDE', W/2, H*0.44); ctx.textAlign='left'; }
+    const tail=!HANDOFF?'  ▸ PARK':(G.car.spd>TUNE.parkMaxSpd?'  ▸ BRAKE TO STOP':'  ▸ PARK');
+    ctx.fillText((f.phase==='pickup'?'PICK UP · '+(f.pickup.name||''):'DROP OFF · '+(f.drop.name||''))+tail, W/2, H*0.44); ctx.textAlign='left'; }
   if(G.toast&&G.mode!=='brief'){ ctx.textAlign='center'; ctx.font='bold 21px "Courier New",monospace';   // 1116: box sized + centred on the text (it sat under it); the brief shows it in its own card
     const tw=Math.min(W-24,ctx.measureText(G.toast.text).width+36);
     ctx.fillStyle='rgba(0,0,0,.62)'; rr(W/2-tw/2,H*0.5-22,tw,34,8); ctx.fill();
@@ -4200,7 +4436,7 @@ function drawSelect(){
   if(cur && cur.note){ ctx.textAlign='center'; ctx.font=(JB?'13px':'17px')+' "Courier New",monospace';
     ctx.fillStyle='#cdb45a'; ctx.fillText(cur.note, W/2, H-62); }
   ctx.textAlign='center'; ctx.fillStyle='#6b757d'; ctx.font='12px "Courier New",monospace';
-  ctx.fillText('CLICK a stage  ·  or GAS/BRAKE move · RIDE select · LAY LOW back', W/2, H-30);
+  ctx.fillText('CLICK a stage  ·  or GAS/BRAKE move · PARK select · LAY LOW back', W/2, H-30);
   ctx.textAlign='left';
 }
 function drawMenu(){   // the "after insert coin" SECOND SCREEN = the MODE SELECT (Q254, 1116): STORY / STAGE SELECT / THE 101
@@ -4279,9 +4515,9 @@ function updateAttract(dt){
   if(G.attractPhase==='title'){ if(G.attractT>=ATTRACT_TITLE_SEC) startAttractDemo(); return; }
   if(G.attractPhase==='hwy'){ if(G.attractT>=ATTRACT_HWY_SEC) startAttractTitle(); return; }   // THE 101 cruise — render-only, no sim
   // demo: drive the real sim
-  attractAI(); updateDrive(dt);
+  attractAI(); aiHandoffKeys(); updateDrive(dt);
   if(G.mode!=='attract'){ startHwy(); return; }              // the slice ended (delivered out / totaled) -> the 101 beat, then title
-  if(G.rideHere) attemptRide();
+  aiHandoffPress();
   if(G.attractT>=ATTRACT_DEMO_SEC) startHwy();
 }
 // THE 101 attract beat — a render-only behind-the-car cruise (no sim). GRAY May-gray sky + a WHITE sun that
@@ -5476,6 +5712,37 @@ function selfTest(){
     ok('mode select / pause / studio stage select render + record their tap bands', r1&&r2&&r3, JSON.stringify({r1,r2,r3})); }
   catch(e){ ok('mode select / pause render', false, String(e&&e.message||e)); }
   resetCabs(); G.gameover=false;   // leave engine clean for any later checks
+  // THE HAND-OFF (Joe 1117): brake to a stop in the curb stop zone -> PARK (parking brake) -> the walker comes -> PARK = accept.
+  //   the floor lifts ONLY in a stop zone (braking elsewhere can't park you) · too fast = no brake · early PARK waits ·
+  //   GAS cancels (walker turns back) · parked = idle heat bleed, but a chasing cop still closes · deterministic.
+  try{ const DTx=1/60;
+    function hoRun(){ startRun(); G.li=0; loadLevel(); G.mode='drive'; G.repoArmed=false; const log=[];
+      const f=G.fares[0], t=f.pickup; keys.left=keys.right=keys.gas=keys.brake=keys.laylow=false;
+      // outside any zone: hold BRAKE for 2 s — the KEEP MOVING floor holds
+      G.car.x=t.x; G.car.y=t.y+150; G.car.ang=0; G.car.spd=40; keys.brake=true; for(let i=0;i<120;i++){ G.car.y=t.y+150; updateDrive(DTx); }
+      const floorHeld=G.car.spd>=TUNE.minSpdFloor-0.01;
+      G.car.x=t.x; G.car.y=t.y+20; G.car.spd=30; keys.brake=false; rideBtn(); const fastRefused=!G.park;
+      keys.brake=true; for(let i=0;i<60;i++){ G.car.x=t.x; G.car.y=t.y+20; updateDrive(DTx); } const stopped=G.car.spd===0;
+      keys.brake=false; rideBtn(); const parked=!!G.park && G.car.spd===0, need=G.park&&G.park.need;
+      for(let i=0;i<20;i++) updateDrive(DTx); rideBtn(); const early=!!G.park && f.phase==='pickup' && G.car.spd===0;
+      G.heat=60; const h0=G.heat; for(let i=0;i<Math.ceil((need+0.2)/DTx);i++) updateDrive(DTx); const bled=G.heat<h0-5 && !!G.park;
+      rideBtn(); const accepted=!G.park && f.phase==='ride' && G.handoffs===1;
+      // the drop: park, then GAS pulls away and cancels
+      const d=f.drop; G.car.x=d.x; G.car.y=d.y+18; G.car.spd=0; G.parkGrace=0; rideBtn(); const parked2=!!G.park;
+      keys.gas=true; updateDrive(DTx); keys.gas=false; const cancelled=!G.park && f.phase==='ride';
+      // a cop on you while parked still closes in
+      G.car.x=d.x; G.car.y=d.y+18; G.car.spd=0; rideBtn(); G.heat=100; G.copOn=true; spawnCop(); const cop=G.cops[0];
+      const c0=cop?Math.hypot(cop.x-G.car.x,cop.y-G.car.y):0; for(let i=0;i<30;i++) updateDrive(DTx);
+      const closes=!!cop && G.copOn && Math.hypot(cop.x-G.car.x,cop.y-G.car.y)<c0-20;
+      log.push(floorHeld,fastRefused,stopped,parked,early,bled,accepted,parked2,cancelled,closes);
+      return {log, sig:[G.car.x,G.car.y,G.heat,G.timeLeft,G.walkers.length,G.handoffs].map(v=>+(+v).toFixed(6)).join(',')}; }
+    const a=hoRun(), b=hoRun();
+    const names=['floor holds outside a zone','too fast = no brake','brakes to 0 in the zone','PARK sets the brake','early PARK waits','parked = idle heat bleed','PARK accepts','re-park','GAS cancels','cop closes while parked'];
+    const bad=a.log.map((v,i)=>v?null:names[i]).filter(Boolean);
+    ok('THE HAND-OFF — stop zone · PARK · walk · ACCEPT · GAS cancels · heat/cop while parked · deterministic',
+       HANDOFF && !bad.length && a.sig===b.sig, bad.join(' / ')+' '+a.sig+' vs '+b.sig);
+  }catch(e){ ok('THE HAND-OFF — flow', false, e.message); }
+  keys.left=keys.right=keys.gas=keys.brake=keys.laylow=false;
   return R;
 }
 function renderTestReport(R){ const pass=R.every(r=>r.ok);
@@ -5514,6 +5781,9 @@ function setupScene(name){   // dev QA seek — jump straight to a screen for sc
     case 'courtesy-choice': go(bon,'drive'); { const f=G.fares[0]; f.phase='ride'; G.car.x=f.drop.x; G.car.y=f.drop.y; attemptRide(); } break;  // at the marquee — THE CHOICE
     case 'courtesy-run': go(bon,'drive'); { const f=G.fares[0]; f.phase='ride'; G.car.x=f.drop.x; G.car.y=f.drop.y; attemptRide(); G.choiceSel=1; resolveChoice();
       const tE=G.exits.find(e=>e.id===G.skidRun.trueExit); G.car.x=WMAX; G.car.y=tE.y+CELL*0.8; G.car.ang=0; G.car.spd=0; updateCam(); } break;  // on the two-way east boundary, approaching the exit — the tell lit
+    case 'handoff': case 'handoff-ready': case 'handoff-drop': go(0,'drive'); { const f=G.fares[0], t=name==='handoff-drop'?f.drop:f.pickup;   // THE HAND-OFF (1117)
+      if(name==='handoff-drop') f.phase='ride'; G.car.x=t.x; G.car.y=t.y+20; G.car.ang=0; G.car.spd=0; rideBtn();
+      const n=name==='handoff'?40:(G.park?Math.ceil(G.park.need*60)+2:0); for(let i=0;i<n;i++) updateDrive(1/60); } break;
     case 'lastride': go(fin,'drive'); { const f=G.fares[0]; G.car.x=f.pickup.x; G.car.y=f.pickup.y; attemptRide(); keys.gas=true; } break;  // wife aboard, chase on
     case 'drive-greens': { const ag=LEVELS.findIndex(l=>l.allgreens); go(ag,'drive'); const g=G.gates[1]||G.gates[0];   // ALL GREENS: the signal head, mid-gauntlet
       if(g){ g.green=false; G.car.x=g.x; G.car.y=g.y+70; G.car.ang=0; G.car.spd=G.level.topMph*0.7; } updateCam(); } break;
@@ -5569,7 +5839,7 @@ else { G.level=LEVELS[0]; G.mode='boot'; requestAnimationFrame(frame); }
    view only, never inside an iframe (cab_desktop's ?embed owns its panel). Speaks the deck's own path — deckIn() —
    so every mode (boot, coin, menus, stage select, choice, drive) behaves exactly like the keyboard / deck:
      STEER stick (8-way, floating origin): x = left/right · up = gas · down = brake (= the arrow keys).
-     Buttons: GAS / BRAKE / LAY LOW held · RIDE / HORN / START fire. A TAP on the game (not driving) = START.
+     Buttons: GAS / BRAKE / LAY LOW held · PARK / GALLOP / START fire (ids ride/horn). A TAP on the game (not driving) = START.
    HAND: ⇄ chip (hidden while driving) or ?hand=right swaps the sides. SESSION-ONLY — the game persists no settings. */
 (function(){
   var Q=new URLSearchParams(location.search), pad=document.getElementById('mzpad'); if(!pad||!document.body||!document.body.classList) return;
