@@ -28,17 +28,24 @@ Santa Clarita and Ventura, and ends in the Mojave. The rule the whole game is bu
 The pause menu has a HOW TO DRIVE card with the same list.
 
 **On a phone,** turn it sideways: a steering pad and six buttons (GAS, BRAKE, RIDE, LAY LOW, HORN, START) sit
-beside the game. The ⇄ LEFTY chip mirrors the two sides.
+beside the game. The ⇄ LEFTY chip mirrors the two sides, and **❚❚ PAUSE** sits over the buttons while you drive.
 
 ## 3D edition
 
 **[MERC ZEBRA — 3D EDITION](https://anderspartnersck.github.io/MERCZEBRA/3d.html)**: the same game, with the
 Valley drawn from a lit 3D world and the Zebra as a 3D car. Press **3** to flip between 3D and the original art.
 
-## Stage select
+## Modes
 
-The main link is the **coin-op campaign**: one credit, stage 1, no skipping. For the **STAGE SELECT**, open
-the jailbroken MAY GRAY cab:
+After the title, pick a mode:
+
+- **STORY**: the campaign. One credit, Northridge to the desert. This is the run that counts.
+- **STAGE SELECT**: play any of the 11 stages on its own, for practice. These runs don't count.
+- **THE 101**: the endless freeway. No fares. Take an exit and you drop into that part of the Valley.
+
+## Jailbreak
+
+For every stage plus the bonus level and the cheats, open the jailbroken MAY GRAY cab:
 
 **[MERC ZEBRA — JAILBREAK / STAGE SELECT](https://anderspartnersck.github.io/MERCZEBRA/?cab=maygray)**
 

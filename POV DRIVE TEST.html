@@ -201,7 +201,7 @@ function step(dt){
   if(S.freeway){ S.miles += S.spd*dt*0.00046;
     if(exitOpen() && S.lat>1.05) takeExit(); }
   if(S.exitTaken){ S.exitTaken+=dt; S.spd*=0.985;                 // coast down the ramp under a LOADING card, then hand off to the map
-    if(S.exitTaken>1.5){ try{ location.href=EXIT_GAME+'?go='+S.exitLi; }catch(e){} S.exitTaken=1.0; } }
+    if(S.exitTaken>1.5){ try{ location.href=(window.MZ_EXIT_URL?window.MZ_EXIT_URL(S.exitLi):EXIT_GAME+'?go='+S.exitLi); }catch(e){} S.exitTaken=1.0; } }
 }
 
 /* ---------- pseudo-3D road render (scanline projection) ---------- */
@@ -541,6 +541,47 @@ function frame(now){
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
+</script>
+<script>
+/* THE 101 as a GAME MODE (1116, Q254) — opened from MERC ZEBRA's mode select as ?run=101&from=menu&back=<page>.
+   Presentation shell only (the sandbox above is untouched): the dev HUD/tag hide, a one-line control strip shows,
+   ESC / ◀ BACK returns to that page's mode select (?menu), an exit lands in that page as a stage run (?go=N&from=101),
+   and on a touch screen: hold the left / right third to steer, the centre cruises, EXIT button while a ramp is open. */
+(function(){
+  var q=new URLSearchParams(location.search); if(q.get('from')!=='menu') return;
+  var back=q.get('back')||'index.html'; if(!/^[\w.%-]+\.html$/.test(back)) back='index.html';
+  window.MZ_EXIT_URL=function(li){ return back+'?go='+li+'&from=101&back='+encodeURIComponent(back); };
+  function goBack(){ location.href=back+'?menu'; }
+  ['hud','tag'].forEach(function(id){ var e=document.getElementById(id); if(e) e.classList.add('hide'); });
+  var touch=('ontouchstart' in window)||navigator.maxTouchPoints>0;
+  var css=document.createElement('style'); css.textContent=
+    '#mz101bar{position:fixed;left:50%;top:62px;transform:translateX(-50%);z-index:9;font:700 12px/1.3 "Courier New",monospace;'+
+    'color:#e9e4da;background:rgba(6,8,12,.72);border:1px solid rgba(255,207,51,.45);border-radius:14px;padding:6px 14px;white-space:nowrap;pointer-events:none;letter-spacing:.04em}'+
+    '#mz101bar b{color:#ffcf33}'+
+    '.mz101btn{position:fixed;z-index:10;font:900 13px/1 "Helvetica Neue",Arial;letter-spacing:.1em;border-radius:18px;padding:11px 16px;touch-action:none;cursor:pointer;user-select:none}'+
+    '#mz101back{left:max(12px,env(safe-area-inset-left));top:max(12px,env(safe-area-inset-top));color:#ffcf33;background:rgba(8,6,4,.72);border:1px solid rgba(255,207,51,.55)}'+
+    '#mz101exit{right:max(14px,env(safe-area-inset-right));top:62%;color:#fff;background:#1d6b3a;border:2px solid #e9f5ec;display:none;font-size:16px;padding:16px 20px}';
+  document.head.appendChild(css);
+  var bar=document.createElement('div'); bar.id='mz101bar';
+  bar.innerHTML=touch?'<b>THE 101</b> · hold LEFT / RIGHT edge to steer · <b>EXIT</b> when a ramp opens'
+                     :'<b>THE 101</b> · ← → steer · ↑ gas · ↓ brake · hold <b>→</b> onto the ramp (or <b>E</b>) to exit · <b>ESC</b> back';
+  document.body.appendChild(bar);
+  var bk=document.createElement('div'); bk.id='mz101back'; bk.className='mz101btn'; bk.textContent='◀ BACK'; document.body.appendChild(bk);
+  bk.addEventListener('pointerdown',function(e){ e.preventDefault(); goBack(); });
+  var ex=document.createElement('div'); ex.id='mz101exit'; ex.className='mz101btn'; ex.textContent='EXIT ▶'; document.body.appendChild(ex);
+  ex.addEventListener('pointerdown',function(e){ e.preventDefault(); e.stopPropagation(); try{ if(exitOpen()) takeExit(); }catch(_){} });
+  addEventListener('keydown',function(e){ if(e.key==='Escape'){ e.preventDefault(); goBack(); } });
+  // touch steering: the outer thirds of the screen hold ← / →
+  var held={};
+  function setSide(id,x){ var w=innerWidth, k=x<w/3?'arrowleft':x>w*2/3?'arrowright':null;
+    if(held[id]&&held[id]!==k) keys[held[id]]=false; held[id]=k; if(k) keys[k]=true; }
+  function lift(id){ if(held[id]) keys[held[id]]=false; delete held[id]; }
+  var cv=document.getElementById('c');
+  cv.addEventListener('pointerdown',function(e){ e.preventDefault(); setSide(e.pointerId,e.clientX); try{cv.setPointerCapture(e.pointerId);}catch(_){} });
+  cv.addEventListener('pointermove',function(e){ if(e.pointerId in held) setSide(e.pointerId,e.clientX); });
+  ['pointerup','pointercancel','lostpointercapture'].forEach(function(t){ cv.addEventListener(t,function(e){ lift(e.pointerId); }); });
+  (function tick(){ requestAnimationFrame(tick); try{ ex.style.display=(touch&&exitOpen())?'block':'none'; if(exitOpen()) ex.textContent='EXIT ▶ '+nextExit().name; }catch(_){} })();
+})();
 </script>
 </body>
 </html>

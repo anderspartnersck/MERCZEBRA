@@ -228,6 +228,8 @@ body.mztouch #cab{touch-action:none}
   text-shadow:0 1px 3px #000;pointer-events:none;white-space:nowrap}
 #mzhand{position:absolute;top:max(10px,env(safe-area-inset-top));pointer-events:auto;touch-action:none;padding:0 11px;height:30px;border-radius:15px;
   border:1px solid rgba(255,45,158,.5);background:rgba(8,4,10,.7);color:#ff2d9e;font:900 11px/28px "Helvetica Neue",Arial;letter-spacing:.1em}
+#mzpause{position:absolute;top:max(10px,env(safe-area-inset-top));pointer-events:auto;touch-action:none;padding:0 11px;height:30px;border-radius:15px;display:none;
+  border:1px solid rgba(255,207,51,.55);background:rgba(8,6,4,.72);color:#ffcf33;font:900 11px/28px "Helvetica Neue",Arial;letter-spacing:.1em}
 body.mzrot #mzrot{display:flex;position:fixed;inset:0;z-index:60;background:#050407;color:#e9e4da;flex-direction:column;align-items:center;justify-content:center;gap:14px;
   font:900 20px/1.2 "Helvetica Neue",Arial;letter-spacing:.06em;text-align:center}
 #mzrot .ph{width:46px;height:78px;border:3px solid #ff2d9e;border-radius:9px;animation:mzRot 1.6s ease-in-out infinite}
@@ -242,7 +244,7 @@ body.mzrot #mzrot{display:flex;position:fixed;inset:0;z-index:60;background:#050
     <div class="mzb laylow" data-a="laylow"><span class="lb">LAY LOW</span></div><div class="mzb ride" data-a="ride"><span class="lb">RIDE</span></div>
     <div class="mzb brake" data-a="brake"><span class="lb">BRAKE</span></div><div class="mzb gas" data-a="gas"><span class="lb">GAS</span></div>
   </div>
-  <div id="mzhand">⇄ LEFTY</div></div>
+  <div id="mzhand">⇄ LEFTY</div><div id="mzpause">❚❚ PAUSE</div></div>
 <div id="mzrot"><div class="ph"></div>TURN YOUR PHONE<br><span style="font-size:13px;color:#b9b2c4;font-weight:700">the valley drives sideways</span></div>
 <div id="cab">
   <div id="frame">
@@ -610,6 +612,22 @@ addEventListener('keyup',e=>{const k=KEYMAP[e.code]; if(k)keys[k]=false;});
 // UI-AUDIT 1110: the PAUSE MENU — ESC / P while driving (pad: SELECT/BACK). Outside KEYMAP: nothing else changes.
 addEventListener('keydown',e=>{ if(e.code!=='Escape'&&e.code!=='KeyP')return; e.preventDefault(); togglePause(); });
 const PAUSE=['RESUME','HOW TO DRIVE','QUIT TO TITLE'].concat((typeof location!=='undefined'&&new URLSearchParams(location.search).get('from')==='keep')?['QUIT TO ARCADE']:[]);   // Q259
+// MODE SELECT (Q254, 1116) — the "second screen" after INSERT COIN: STORY / STAGE SELECT / THE 101.
+// Front-end only: STORY = startRun() (the honest campaign), STAGE SELECT = the existing select scene (stage runs are
+// flagged non-canonical), THE 101 = the endless-freeway page (POV DRIVE TEST.html?run=101), whose exits drop back into
+// a stage here (?go=N&from=101). ?arcade keeps the pure coin-op (one row: PRESS START — DRIVE).
+const MZQ=(typeof location!=='undefined'&&location.search)||'';
+const ARCADE_COINOP=/[?&]arcade\b/.test(MZQ);
+const MENU_ROWS=ARCADE_COINOP?[{id:'story',label:'STORY',sub:'the campaign · one credit · the honest run'}]:[
+  {id:'story', label:'STORY',        sub:'all 11 stages, Northridge to the desert · one credit · the honest run'},
+  {id:'stage', label:'STAGE SELECT', sub:"drive any stage on its own · practice — it won't post to the board"},
+  {id:'hwy',   label:'THE 101',      sub:'the endless freeway · no fares · take an exit into the Valley'}];
+function hwyURL(){ let back='index.html'; try{ const b=location.pathname.split('/').pop(); if(/^[\w.%-]+\.html$/.test(b)) back=b; }catch(e){}
+  return 'POV DRIVE TEST.html?run=101&from=menu&back='+encodeURIComponent(back); }
+function menuActivate(){ const r=MENU_ROWS[G.menuI|0]||MENU_ROWS[0];
+  if(r.id==='story'){ sfx.confirm(); startRun(); }
+  else if(r.id==='stage'){ sfx.confirm(); G.mode='select'; G.selIdx=0; }
+  else if(r.id==='hwy'){ sfx.confirm(); G.lastNav=hwyURL(); if(typeof location!=='undefined'&&location.assign) location.href=G.lastNav; } }
 function togglePause(){
   if(G.mode==='drive'&&!G.demo){ G.mode='pause'; G.pauseI=0; G.pauseHow=false; for(const k in keys)keys[k]=false; sfx.cursor(); }
   else if(G.mode==='pause'){ if(G.pauseHow) G.pauseHow=false; else G.mode='drive'; sfx.cursor(); }
@@ -636,9 +654,15 @@ function drawPause(){
       ctx.textAlign='left'; ctx.fillStyle='#e8e8e8'; ctx.font='16px "Courier New",monospace'; ctx.fillText(L[i][1],W*0.24+18,y); ctx.font='bold 17px "Courier New",monospace'; }
     ctx.textAlign='left'; small('ENTER / ESC — BACK',H*0.92,getCss('--gold')); return;
   }
-  big('PAUSED',H*0.34,getCss('--gold'));
-  for(let i=0;i<PAUSE.length;i++){ const sel=i===G.pauseI; med((sel?'▶ ':'')+PAUSE[i]+(sel?' ◀':''),H*0.48+i*44,sel?getCss('--gold'):'#9aa3ad'); }
-  small('↑ ↓ choose · ENTER go · ESC resume',H*0.82,'#9aa3ad');
+  const pw=Math.min(W*0.84,460), ph=H*0.20+PAUSE.length*48;                       // 1116: a solid card (the menu sat on the busy map)
+  ctx.fillStyle='rgba(6,8,12,.88)'; rr(W/2-pw/2,H*0.25,pw,ph,12); ctx.fill();
+  ctx.strokeStyle='rgba(255,207,51,.55)'; ctx.lineWidth=2; rr(W/2-pw/2,H*0.25,pw,ph,12); ctx.stroke();
+  big('PAUSED',H*0.25+70,getCss('--gold'));
+  G._pauseRects=[];
+  for(let i=0;i<PAUSE.length;i++){ const sel=i===G.pauseI, y=H*0.25+136+i*48;
+    if(sel){ ctx.fillStyle='rgba(255,207,51,.14)'; rr(W/2-pw/2+18,y-30,pw-36,42,8); ctx.fill(); }
+    med((sel?'▶ ':'')+PAUSE[i]+(sel?' ◀':''),y,sel?getCss('--gold'):'#d6dde3'); G._pauseRects.push({i,t:y-30,b:y+12}); }
+  small('↑ ↓ choose · START go · ESC resume',H*0.25+ph-22,'#b9c2ca');
 }
 // THE DECK IS FULLY INTERACTIVE (mouse/touch): gas/brake/laylow are held; ride/horn/start fire actions.
 // deckIn() mirrors the keyboard handler exactly (continuous keys go through press() for menu-nav rising
@@ -676,8 +700,20 @@ function _selHit(e){ if(G.mode!=='select'||!G._selRects||!cv) return null;
   if(cx<40||cx>W-40) return null;
   for(const row of G._selRects){ if(cy>=row.t && cy<row.b) return row.i; }
   return null; }
+function _cvXY(e){ const r=cv.getBoundingClientRect(); if(!r.width||!r.height) return null; return [(e.clientX-r.left)*(W/r.width),(e.clientY-r.top)*(H/r.height)]; }
+function _menuHit(e){ const p=G.mode==='menu'?_cvXY(e):null; if(!p||!G._menuRects) return null;
+  for(const m of G._menuRects) if(p[0]>=m.l&&p[0]<=m.r&&p[1]>=m.t&&p[1]<=m.b) return m.i; return null; }
+function _pauseHit(e){ const p=(G.mode==='pause'&&!G.pauseHow)?_cvXY(e):null; if(!p||!G._pauseRects) return null;
+  if(Math.abs(p[0]-W/2)>230) return null; for(const m of G._pauseRects) if(p[1]>=m.t&&p[1]<m.b) return m.i; return null; }
 if(cv && cv.addEventListener){
-  cv.addEventListener('mousemove',e=>{ if(G.mode!=='select'){ if(cv.style.cursor)cv.style.cursor=''; return; }
+  cv.addEventListener('mousemove',e=>{ const mi=_menuHit(e), pi=_pauseHit(e);      // 1116: the mode select + pause rows are point-and-click too
+    if(mi!=null&&mi!==G.menuI){ G.menuI=mi; sfx.cursor(); } if(pi!=null&&pi!==G.pauseI){ G.pauseI=pi; sfx.cursor(); }
+    if(G.mode==='menu'||G.mode==='pause') cv.style.cursor=(mi!=null||pi!=null)?'pointer':''; });
+  cv.addEventListener('click',e=>{ if(typeof CKBoot!=='undefined'&&CKBoot.held()) return;
+    const mi=_menuHit(e); if(mi!=null){ G.menuI=mi; menuActivate(); return; }
+    const pi=_pauseHit(e); if(pi!=null){ G.pauseI=pi; pausePress('start'); return; }
+    if(G.mode==='pause'&&G.pauseHow){ G.pauseHow=false; } });
+  cv.addEventListener('mousemove',e=>{ if(G.mode!=='select'){ if(cv.style.cursor&&G.mode!=='menu'&&G.mode!=='pause')cv.style.cursor=''; return; }
     const i=_selHit(e); if(i!=null && i!==G.selIdx){ G.selIdx=i; sfx.cursor(); } cv.style.cursor=(i!=null)?'pointer':'default'; });
   cv.addEventListener('click',e=>{ if(G.mode!=='select')return; const i=_selHit(e); if(i!=null){ G.selIdx=i; selectActivate(); } });
 }
@@ -727,18 +763,27 @@ function press(k){
     const N=selectRows().length;
     if(k==='gas'||k==='left'){ G.selIdx=(G.selIdx-1+N)%N; sfx.cursor(); }
     else if(k==='brake'||k==='right'){ G.selIdx=(G.selIdx+1)%N; sfx.cursor(); }
-    else if(k==='laylow'){ sfx.cursor(); G.mode='attract'; }   // BACK -> attract
+    else if(k==='laylow'){ sfx.cursor(); G.attractPhase=null; G.mode=CAB.jailbroken?'attract':'menu'; }   // BACK -> attract (jailbreak) / the mode select (1116)
     else if(k==='start'){ selectActivate(); }
+    return;
+  }
+  if(G.mode==='menu'&&MENU_ROWS.length>1){                    // MODE SELECT (Q254): STORY / STAGE SELECT / THE 101
+    const N=MENU_ROWS.length;
+    if(k==='gas'||k==='left'){ G.menuI=((G.menuI|0)+N-1)%N; sfx.cursor(); }
+    else if(k==='brake'||k==='right'){ G.menuI=((G.menuI|0)+1)%N; sfx.cursor(); }
+    else if(k==='laylow'){ sfx.cursor(); G.attractPhase=null; G.mode='attract'; }
+    else if(k==='start') menuActivate();
     return;
   }
   if(k!=='start'&&G.mode!=='choice')return;
   if(G.mode==='boot'){bootT0=null;G.mode=afterBoot();return;}
-  if(G.mode==='attract'){sfx.coin();G.attractPhase=null;G.demo=false;G.mode='menu';return;}   // INSERT COIN (from title OR demo) -> second screen
-  if(G.mode==='menu'){sfx.confirm();startRun();return;}       // START -> drive
+  if(G.mode==='attract'){sfx.coin();G.attractPhase=null;G.demo=false;G.menuI=0;G.mode='menu';return;}   // INSERT COIN (from title OR demo) -> second screen
+  if(G.mode==='menu'){menuActivate();return;}                // (?arcade: the one row = STORY -> drive)
   if(G.mode==='travel'){G.mode='brief';return;}               // skip the 101 cruise -> the destination brief
   if(G.mode==='brief'){G.mode='drive';return;}
-  if(G.mode==='result'){advanceLevel();return;}
-  if(G.mode==='ending'){G.mode=CAB.jailbroken?'select':'attract';return;}
+  if(G.mode==='result'){ if(G.from101&&G.stageSelect&&typeof location!=='undefined'&&location.assign){ location.href=G.from101; return; }   // a 101 exit -> back on the freeway
+    advanceLevel();return;}
+  if(G.mode==='ending'){G.mode=(CAB.jailbroken||G.stageSelect)?'select':'attract';return;}   // a stage-select run ends back at the roster
   if(G.mode==='choice'){
     if(k==='left'){ if(G.choiceSel!==0)sfx.cursor(); G.choiceSel=0; }
     else if(k==='right'){ if(G.choiceSel!==1)sfx.cursor(); G.choiceSel=1; }
@@ -1235,13 +1280,14 @@ const STAGE_NOTES=[
 ];
 // zone -> {tag, colour} for the stage-select rows (matches the in-game compass).
 const ZONE_TAG={ valley:{tag:'VALLEY',col:'#8fb6cf'}, haul:{tag:'HAUL',col:'#e0a64e'}, mojave:{tag:'MOJAVE',col:'#d8704f'}, downtown:{tag:'DTLA',col:'#c77dff'} };
-function selectRows(){                                // roster read from LEVELS -> can never drift
-  const rows=[{type:'run',label:'RUN ALL — THE CAMPAIGN',note:'all '+CAMPAIGN_N+' stages · one credit · won\'t post to the board'}];
-  for(let i=0;i<LEVELS.length;i++){ const L=LEVELS[i], z=ZONE_TAG[L.zone]||ZONE_TAG.valley;
+function selectRows(full){                            // roster read from LEVELS -> can never drift
+  if(full===undefined) full=CAB.jailbroken||!!G.selFull;   // (G.selFull: the self-test drives the full jailbreak roster headless)            // 1116: the STUDIO mode select's STAGE SELECT = campaign stages only (no RUN ALL/bonus/cheats)
+  const rows=full?[{type:'run',label:'RUN ALL — THE CAMPAIGN',note:'all '+CAMPAIGN_N+' stages · one credit · won\'t post to the board'}]:[];
+  for(let i=0;i<LEVELS.length;i++){ const L=LEVELS[i], z=ZONE_TAG[L.zone]||ZONE_TAG.valley; if(!full&&L.bonus) continue;
     rows.push({type:'stage',li:i, label:(L.bonus?'★ ':((i+1)+'. '))+L.name,
                note:L.bonus?(L.note||''):(STAGE_NOTES[i]||''),
                tag:L.final?'FINAL':z.tag, col:L.final?'#cf93a6':z.col, night:!!L.night, final:!!L.final, bonus:!!L.bonus}); }
-  for(const c of CHEAT_DEFS) rows.push({type:'cheat',key:c.key,label:c.label,note:c.note});
+  if(full) for(const c of CHEAT_DEFS) rows.push({type:'cheat',key:c.key,label:c.label,note:c.note});
   return rows;
 }
 function pickStage(idx){ startRun(); G.li=idx; loadLevel(); G.stageSelect=true; }  // single level -> back to select after result
@@ -3678,9 +3724,10 @@ function drawHUD(){
     ctx.fillStyle=Math.sin(G.t*7)>-.3?getCss('--gold'):'rgba(0,0,0,0)';
     ctx.font='bold 22px "Courier New",monospace';
     ctx.fillText((f.phase==='pickup'?'PICK UP · '+(f.pickup.name||''):'DROP OFF · '+(f.drop.name||''))+'  ▸ RIDE', W/2, H*0.44); ctx.textAlign='left'; }
-  if(G.toast){ ctx.textAlign='center'; ctx.font='bold 21px "Courier New",monospace';
-    ctx.fillStyle='rgba(0,0,0,.55)'; ctx.fillRect(W/2-210,H*0.5,420,32);
-    ctx.fillStyle=getCss('--gold'); ctx.fillText(G.toast.text,W/2,H*0.5+6); ctx.textAlign='left'; }
+  if(G.toast&&G.mode!=='brief'){ ctx.textAlign='center'; ctx.font='bold 21px "Courier New",monospace';   // 1116: box sized + centred on the text (it sat under it); the brief shows it in its own card
+    const tw=Math.min(W-24,ctx.measureText(G.toast.text).width+36);
+    ctx.fillStyle='rgba(0,0,0,.62)'; rr(W/2-tw/2,H*0.5-22,tw,34,8); ctx.fill();
+    ctx.fillStyle=getCss('--gold'); ctx.fillText(G.toast.text,W/2,H*0.5+2); ctx.textAlign='left'; }
   ctx.restore();
 }
 function drawMiniMap(x,y,w,h){
@@ -3760,16 +3807,18 @@ function drawTravel(){ const L=G.level, M=MISSIONS[G.li]||{}, prog=Math.min(1,G.
   ctx.fillStyle=getCss('--gold'); rr(bx,byy,Math.max(3,bw*prog),5,3); ctx.fill();
   blink('PRESS START — SKIP',H*0.86+34);
 }
-function drawBrief(){ const L=G.level; veil(.5);
+function textPlate(y0,y1){ const w=Math.min(W*0.9,700); ctx.fillStyle='rgba(5,7,11,.72)'; rr(W/2-w/2,y0,w,y1-y0,14); ctx.fill(); }   // 1116 legibility card
+function drawBrief(){ const L=G.level; veil(.5); textPlate(H*0.30-62,H*0.30+236);
   big(L.name,H*0.30,L.final?getCss('--hot'):'#fff');
   const tag=L.theater?'THE COURTESY · DTLA':L.final?'THE LAST RIDE':L.run?'THE PALMDALE RUN':L.allgreens?'ALL GREENS':L.queen?"QUEEN'S GAME DROP-OFF":L.haul?'THE HAUL':(L.night?'NIGHT SHIFT':'VALLEY RUN');
   med(tag,H*0.30+58,L.theater?'#c77dff':L.queen?getCss('--cyan'):getCss('--gold'));
   const slot=L.bonus?'BONUS':`LEVEL ${G.li+1}/${CAMPAIGN_N}`;
   small(`${slot}  ·  ${L.fares} ${L.allgreens?'LIGHTS':'FARES'}  ·  ${fmt(L.time)}  ·  CARS ▰×${G.lives}`,H*0.30+96);
-  small((MISSIONS[G.li]&&MISSIONS[G.li].brief)||briefLine(L),H*0.30+126,getCss('--ink-dim'));
+  small((MISSIONS[G.li]&&MISSIONS[G.li].brief)||briefLine(L),H*0.30+126,'#c9d1d8');
   if(L.zone==='mojave') small("Turn up the extreme technical death metal for my cousin.",H*0.30+152,getCss('--gold-dim'));
   if(IMG['car/back_day']) drawImgFit(IMG['car/back_day'],W/2,H*0.74,W*0.62,H*0.30,.96);  // the rear hero — taillights + ☿, you're about to drive
-  blink('PRESS START',H*0.30+184);
+  if(G.toast) small('▸ '+G.toast.text,H*0.30+(L.zone==='mojave'?180:158),getCss('--amber'));   // the stage's wrinkle, inside the card
+  blink('PRESS START',H*0.30+214);
 }
 function briefLine(L){
   if(L.theater) return "downtown's all one-way. read the arrows — a ride to THE COURTESY.";
@@ -3808,15 +3857,16 @@ function drawChoice(){ veil(.62);
 }
 function drawResult(){ const L=G.level, star=G.stars[G.li]||1; veil(.6);
   if(L.bonus){ drawBonusResult(); return; }                  // THE COURTESY has its own outcomes
+  textPlate(H*0.26-44,H*0.26+214);
   med(L.name+' — '+(G.delivered>=L.fares?'CLEARED':'TIME'),H*0.26,'#fff');
   ctx.textAlign='center'; ctx.font='34px "Courier New",monospace'; let s='';
   for(let i=0;i<5;i++)s+=i<star?'★':'☆'; ctx.fillStyle=getCss('--gold'); ctx.fillText(s,W/2,H*0.26+48); ctx.textAlign='left';
-  small(`done ${G.delivered}/${L.fares}  ·  wrecks ${G.wrecks}  ·  busts ${G.busts}  ·  complaints ${G.complaints}`,H*0.26+106,getCss('--ink-dim'));
+  small(`done ${G.delivered}/${L.fares}  ·  wrecks ${G.wrecks}  ·  busts ${G.busts}  ·  complaints ${G.complaints}`,H*0.26+106,'#c9d1d8');
   if(L.final)small("one star. that's all the desert gives.",H*0.26+136,getCss('--hot'));
-  else small("every customer complained about the car.",H*0.26+136,getCss('--ink-dim'));
+  else small("every customer complained about the car.",H*0.26+136,'#c9d1d8');
   // the zebra pulling away to the next gig — rear-¾ beauty (taillights + the ☿ plate); gentle bob
   if(IMG['car/clear']){ const bob=Math.sin(G.t*1.4)*3; drawImgFit(IMG['car/clear'],W/2,H*0.76+bob,W*0.66,H*0.34,.98); }
-  blink('PRESS START — NEXT GIG',H*0.26+194);
+  blink(G.stageSelect?(G.from101?'PRESS START — BACK ON THE 101':'PRESS START — STAGE SELECT'):'PRESS START — NEXT GIG',H*0.26+194);
 }
 // THE COURTESY — the bonus outcomes. The grace is the show; the deep treat is the
 // right path, earned. The why stays unspoken (BONUS_THE_COURTESY.md).
@@ -3839,11 +3889,11 @@ function drawBonusResult(){ veil(.62);
   blink('PRESS START',H*0.24+170);
 }
 function drawEnding(){
-  if(G.gameover){ drawAttractBg(); veil(.58);
+  if(G.gameover){ drawAttractBg(); veil(.58); textPlate(H*0.24-56,H*0.24+140);
     big("GAME OVER",H*0.24,getCss('--hot'));
     med("the Zebra's totaled.",H*0.24+58,'#fff');
-    small("Jackie Boye tows what's left back to the lot.",H*0.24+96,getCss('--ink-dim'));
-    small("you never made the desert.",H*0.24+122,getCss('--ink-dim'));
+    small("Jackie Boye tows what's left back to the lot.",H*0.24+96,'#c9d1d8');
+    small("you never made the desert.",H*0.24+122,'#c9d1d8');
     // the dead zebra — rear-¾, taillights out, the warmth gone (no bob; it's not going anywhere)
     if(IMG['car/totaled']) drawImgFit(IMG['car/totaled'],W/2,H*0.72,W*0.66,H*0.34,.9); }
   else {
@@ -3942,27 +3992,30 @@ function drawSelect(){
   ctx.textAlign='center';
   ctx.font='12px "Courier New",monospace'; ctx.fillStyle='#9aa0a6';
   ctx.fillText("JOSEPH COLEMAN'S", W/2, 46);
+  const JB=CAB.jailbroken;
   ctx.font='bold 42px "Courier New",monospace'; ctx.fillStyle='#cfd6dc';
-  ctx.fillText('MAY GRAY', W/2, 86);
+  ctx.fillText(JB?'MAY GRAY':'MERC ZEBRA', W/2, 86);
   ctx.font='bold 13px "Courier New",monospace'; ctx.fillStyle='#d9b62e';
-  ctx.fillText('JAILBROKEN CAB · STAGE SELECT', W/2, 110);
+  ctx.fillText(JB?'JAILBROKEN CAB · STAGE SELECT':'STAGE SELECT · PRACTICE ANY STAGE', W/2, 110);
   ctx.font='12px "Courier New",monospace'; ctx.fillStyle='#c06a5a';
-  ctx.fillText('runs here do NOT post to the 1UP board', W/2, 130);
+  ctx.fillText(JB?'runs here do NOT post to the 1UP board':'stage runs do NOT post to the 1UP board · STORY does', W/2, 130);
   hazardStripe(144,7);
 
-  const rows=selectRows(), cheatStart=1+LEVELS.length;
-  const X=70, NX=W-66, rowH=26; let y=190;
+  const rows=selectRows();
+  const X=70, NX=W-66, rowH=JB?26:Math.min(52,Math.floor((H-340)/rows.length)); let y=JB?190:214;
   G._selRects=[];                                          // clickable row bands (mouse support) — rebuilt each draw
   function header(t,c){ ctx.textAlign='center'; ctx.font='bold 12px "Courier New",monospace';
     ctx.fillStyle=c; ctx.fillText('—  '+t+'  —', W/2, y); y+=24; ctx.textAlign='left'; }
   for(let i=0;i<rows.length;i++){
     const r=rows[i], sel=i===G.selIdx;
-    if(i===0)            header('THE FULL RUN','#7f8b94');
-    if(i===1)            header('STAGES','#7f8b94');
-    if(i===1+CAMPAIGN_N) header('BONUS · the jailbreak playground','#9a6fb0');
-    if(i===cheatStart)   header('CHEATS · latch this run non-canonical','#5d6770');
+    const pv=rows[i-1];                                     // section headers fire on a row-kind change (works for both rosters)
+    if(r.type==='run')                                   header('THE FULL RUN','#7f8b94');
+    if(r.type==='stage'&&!r.bonus&&(!pv||pv.type!=='stage')) header('STAGES','#7f8b94');
+    if(r.bonus&&!(pv&&pv.bonus))                          header('BONUS · the jailbreak playground','#9a6fb0');
+    if(r.type==='cheat'&&(!pv||pv.type!=='cheat'))        header('CHEATS · latch this run non-canonical','#5d6770');
     // selection highlight bar (hazard-amber wash) + caret
-    if(sel){ ctx.fillStyle='rgba(217,182,46,.14)'; ctx.fillRect(X-22,y-15,W-2*(X-22),rowH-4);
+    const bt=JB?15:Math.round(rowH*0.62);                   // band top above the baseline (centres the bar on the bigger studio rows)
+    if(sel){ ctx.fillStyle='rgba(217,182,46,.14)'; ctx.fillRect(X-22,y-bt,W-2*(X-22),rowH-4);
       ctx.fillStyle='#d9b62e'; ctx.font='bold 16px "Courier New",monospace'; ctx.textAlign='left';
       ctx.fillText('▸',X-18,y); }
     // label (left) — coloured by row kind / zone / cheat state
@@ -3970,9 +4023,9 @@ function drawSelect(){
     if(r.type==='run')        labelCol = sel?'#ffffff':'#e6dca8';
     else if(r.type==='stage') labelCol = sel?'#ffffff':r.col;
     else                      labelCol = G.cheats[r.key]?'#39d98a':(sel?'#ffffff':'#aeb7be');
-    ctx.textAlign='left'; ctx.font=(sel?'bold ':'')+'15px "Courier New",monospace'; ctx.fillStyle=labelCol;
+    ctx.textAlign='left'; ctx.font=(sel?'bold ':'')+(JB?'15px':'22px')+' "Courier New",monospace'; ctx.fillStyle=labelCol;
     let label=r.label;
-    if(r.type==='stage' && r.night) label='◐ '+label;
+    if(r.type==='stage' && r.night) label=label+'  ◐';            // night marker as a suffix keeps the numbers aligned
     ctx.fillText(label,X,y);
     // right column: zone tag / cheat toggle state
     ctx.textAlign='right';
@@ -3980,22 +4033,40 @@ function drawSelect(){
       ctx.fillText(r.tag,NX,y); }
     else if(r.type==='cheat'){ const on=G.cheats[r.key]; ctx.font='bold 12px "Courier New",monospace';
       ctx.fillStyle=on?'#39d98a':'#5d6770'; ctx.fillText(on?'[ ON ]':'[ off ]',NX,y); }
-    G._selRects.push({i, t:y-16, b:y+rowH-16});           // hit-band for the mouse
+    G._selRects.push({i, t:y-bt-1, b:y-bt-1+rowH});           // hit-band for the mouse
     y+=rowH;
   }
   // ---- the hovered row's note (SUCK UP's note_on) ----
   hazardStripe(H-92,7);
   const cur=rows[G.selIdx];
-  if(cur && cur.note){ ctx.textAlign='center'; ctx.font='13px "Courier New",monospace';
+  if(cur && cur.note){ ctx.textAlign='center'; ctx.font=(JB?'13px':'17px')+' "Courier New",monospace';
     ctx.fillStyle='#cdb45a'; ctx.fillText(cur.note, W/2, H-62); }
   ctx.textAlign='center'; ctx.fillStyle='#6b757d'; ctx.font='12px "Courier New",monospace';
   ctx.fillText('CLICK a stage  ·  or GAS/BRAKE move · RIDE select · LAY LOW back', W/2, H-30);
   ctx.textAlign='left';
 }
-function drawMenu(){   // the "after insert coin" SECOND SCREEN (later: stage select / mode menu)
+function drawMenu(){   // the "after insert coin" SECOND SCREEN = the MODE SELECT (Q254, 1116): STORY / STAGE SELECT / THE 101
   if(IMG['screens/menu']) drawImgCover(IMG['screens/menu']);
   else { drawAttractBg(); med('MERC ZEBRA',H*0.30,'#fff'); }
-  veil(.08); blink('PRESS START — DRIVE',H*0.90);
+  veil(.08);
+  G._menuRects=[];
+  if(MENU_ROWS.length<2){ blink('PRESS START — DRIVE',H*0.90); return; }      // ?arcade: the pure coin-op
+  const g=ctx.createLinearGradient(0,H*0.74,0,H); g.addColorStop(0,'rgba(5,6,10,0)'); g.addColorStop(0.35,'rgba(5,6,10,.78)'); g.addColorStop(1,'rgba(5,6,10,.92)');
+  ctx.fillStyle=g; ctx.fillRect(0,H*0.74,W,H*0.26);
+  const sel=G.menuI|0, fs=Math.max(20,Math.min(30,Math.round(W/30)));
+  ctx.font='bold '+fs+'px "Courier New",monospace';
+  const pad=fs*0.9, gap=fs*0.7, ws=MENU_ROWS.map(r=>ctx.measureText(r.label).width+pad*2), tot=ws.reduce((a,b)=>a+b,0)+gap*(ws.length-1);
+  let x=W/2-tot/2; const y=H*0.855, hh=fs*1.9;
+  for(let i=0;i<MENU_ROWS.length;i++){ const on=i===sel, w=ws[i];
+    ctx.fillStyle=on?getCss('--gold'):'rgba(14,16,22,.82)'; rr(x,y-hh/2,w,hh,hh/2); ctx.fill();
+    ctx.strokeStyle=on?'#fff3c4':'rgba(233,238,242,.35)'; ctx.lineWidth=on?2.5:1.5; rr(x,y-hh/2,w,hh,hh/2); ctx.stroke();
+    ctx.textAlign='center'; ctx.fillStyle=on?'#14110a':'#e9eef2'; ctx.font='bold '+fs+'px "Courier New",monospace';
+    ctx.fillText(MENU_ROWS[i].label,x+w/2,y+fs*0.35);
+    G._menuRects.push({i,l:x,r:x+w,t:y-hh/2,b:y+hh/2}); x+=w+gap; }
+  ctx.font=Math.round(fs*0.62)+'px "Courier New",monospace'; ctx.fillStyle='#f3e6b0'; ctx.textAlign='center';
+  ctx.fillText(MENU_ROWS[sel].sub,W/2,y+hh/2+fs*1.05);
+  ctx.font=Math.round(fs*0.5)+'px "Courier New",monospace'; ctx.fillStyle='#9aa3ad';
+  ctx.fillText('◀ ▶ choose  ·  START go  ·  LAY LOW back',W/2,H-14); ctx.textAlign='left';
 }
 // ---- THE ATTRACT — a LIVE gameplay demo (the game plays itself) ----
 // The arcade convention: walk up to the cab and the game is already running. A 2-phase loop —
@@ -4287,10 +4358,16 @@ function bar(x,y,w,h,frac,label,col){ frac=Math.max(0,Math.min(1,frac));
   ctx.fillStyle='#fff'; ctx.fillText(label,x+4,y); }
 function heatCol(h){ return h>75?getCss('--hot'):h>40?getCss('--amber'):getCss('--green'); }
 function veil(a){ ctx.fillStyle='rgba(4,6,10,'+a+')'; ctx.fillRect(0,0,W,H); }
-function big(s,y,c){ ctx.textAlign='center'; ctx.font='bold 46px "Courier New",monospace'; ctx.fillStyle=c; ctx.fillText(s,W/2,y); ctx.textAlign='left'; }
-function med(s,y,c){ ctx.textAlign='center'; ctx.font='bold 24px "Courier New",monospace'; ctx.fillStyle=c; ctx.fillText(s,W/2,y); ctx.textAlign='left'; }
-function small(s,y,c){ ctx.textAlign='center'; ctx.font='15px "Courier New",monospace'; ctx.fillStyle=c||getCss('--ink'); ctx.fillText(s,W/2,y); ctx.textAlign='left'; }
-function blink(s,y){ if(Math.sin(G.t*5)>-0.2){ ctx.textAlign='center'; ctx.font='bold 17px "Courier New",monospace'; ctx.fillStyle=getCss('--gold'); ctx.fillText(s,W/2,y); ctx.textAlign='left'; } }
+// 1116: on the PHONE PAD the square game is ~390 px tall, so screen text gets a 1.25x boost (UIK), and every line
+// fits itself to the frame (shrinks rather than clipping). Render-only.
+function UIK(){ try{ return (document.body&&document.body.classList&&document.body.classList.contains('mztouch'))?1.25:1; }catch(e){ return 1; } }
+function fitText(s,y,px,bold,c){ let f=Math.round(px*UIK()); ctx.textAlign='center'; ctx.font=(bold?'bold ':'')+f+'px "Courier New",monospace';
+  const mw=W*0.94, w=ctx.measureText(s).width; if(w>mw&&w>0){ f=Math.max(9,Math.floor(f*mw/w)); ctx.font=(bold?'bold ':'')+f+'px "Courier New",monospace'; }
+  ctx.fillStyle=c; ctx.fillText(s,W/2,y); ctx.textAlign='left'; }
+function big(s,y,c){ fitText(s,y,46,true,c); }
+function med(s,y,c){ fitText(s,y,24,true,c); }
+function small(s,y,c){ fitText(s,y,15,false,c||getCss('--ink')); }
+function blink(s,y){ if(Math.sin(G.t*5)>-0.2) fitText(s,y,17,true,getCss('--gold')); }
 function fmt(s){ s=Math.max(0,Math.ceil(s)); return String((s/60)|0).padStart(2,'0')+':'+String(s%60).padStart(2,'0'); }
 
 /* ============================================================
@@ -5028,6 +5105,7 @@ function selfTest(){
   // the jailbroken cab routes boot -> select (the one thing that flips on ?cab=maygray)
   ok('jailbroken cab boots to STAGE SELECT', CABS.maygray.jailbroken===true);
   // roster is LEVELS-derived and can't drift: RUN ALL + 11 stages + the cheat rows
+  G.selFull=true;                                                 // the CABS block below exercises the jailbreak roster (cheats etc.)
   const rws=selectRows();
   ok('select roster = RUN ALL + every level + cheats',
      rws.length===1+LEVELS.length+CHEAT_DEFS.length && rws[0].type==='run'
@@ -5189,10 +5267,10 @@ function selfTest(){
     frame=mk(new Set([13])); pollPad(); const a2=G.selIdx;          // HELD -> must not keep moving (edge-detect)
     frame=mk(new Set());     pollPad();
     frame=mk(new Set([13])); pollPad(); const a3=G.selIdx;          // re-press -> +1 again
-    frame=mk(new Set([6]));  pollPad(); const back=G.mode;          // LAY LOW button -> back to attract
+    frame=mk(new Set([6]));  pollPad(); const back=G.mode;          // LAY LOW button -> back (attract on MAY GRAY, the mode select on STUDIO)
     navigator.getGamepads=savedGP; pad=savedPad; _padNav={};
     ok('gamepad drives STAGE SELECT (nav + edge-detect + back)',
-       a1===1 && a2===1 && a3===2 && back==='attract', 'sel '+a1+'/'+a2+'/'+a3+' mode '+back);
+       a1===1 && a2===1 && a3===2 && back===(CAB.jailbroken?'attract':'menu'), 'sel '+a1+'/'+a2+'/'+a3+' mode '+back);
   })();
   // GAMEPAD REMAP (gamepad_mapper.html): with no saved `mercZebraGamepad`, the binding
   // indirection must collapse to the exact arcade defaults — so a remap can only ADD, never
@@ -5217,7 +5295,29 @@ function selfTest(){
        loaded && fpGated===fpNone, 'cityNone '+cityNone+' fpEq '+(fpGated===fpNone));
     if(typeof window!=='undefined') window.CITY_PRESETS=saved; G.li=savedLi; loadLevel();
   })();
-  resetCabs();   // leave engine clean for any later checks
+  G.selFull=false;
+  /* ===== MODE SELECT (Q254, 1116) — front-end only: STORY / STAGE SELECT / THE 101 ===== */
+  try{ resetCabs(); G.attractPhase=null; G.mode='attract'; press('start'); const m0=G.mode, i0=G.menuI;
+    const rowsOK=MENU_ROWS.map(r=>r.id).join()==='story,stage,hwy';
+    press('brake'); const i1=G.menuI; press('gas'); press('gas'); const i2=G.menuI; press('right'); press('right');   // wraps 2 -> 0 -> 1
+    press('start'); const toSel=G.mode==='select' && G.selIdx===0;
+    const st=selectRows(); const studioRoster=st.length===CAMPAIGN_N && st.every((r,i)=>r.type==='stage'&&r.li===i);
+    press('laylow'); const backMenu=G.mode==='menu';
+    G.menuI=0; press('start'); const story=G.mode==='brief' && G.li===0 && !G.stageSelect && runIsCanonical();
+    G.mode='menu'; G.menuI=2; G.lastNav=null; press('start'); const hwy=/^POV DRIVE TEST\.html\?run=101&from=menu&back=/.test(G.lastNav||'') && G.mode==='menu';
+    G.mode='menu'; press('laylow'); const backAttract=G.mode==='attract';
+    G.mode='select'; G.selIdx=4; selectActivate(); const pick=G.li===4 && G.stageSelect && G.mode==='brief' && !runIsCanonical();
+    G.gameover=true; G.mode='ending'; press('start'); const endSel=G.mode==='select';
+    ok('MODE SELECT: coin -> STORY/STAGE SELECT/THE 101; cursor wraps; STAGE SELECT = the 11 campaign stages (no cheats/bonus on STUDIO); back -> menu -> attract; STORY is canonical; THE 101 hands off; a stage game-over returns to the roster',
+      m0==='menu'&&i0===0&&rowsOK&&i1===1&&i2===2&&toSel&&studioRoster&&backMenu&&story&&hwy&&backAttract&&pick&&endSel,
+      JSON.stringify({m0,i0,rowsOK,i1,i2,toSel,studioRoster,backMenu,story,hwy,backAttract,pick,endSel}));
+  }catch(e){ ok('MODE SELECT front-end', false, String(e&&e.message||e)); }
+  try{ G.mode='menu'; G.menuI=1; drawMenu(); const r1=G._menuRects&&G._menuRects.length===3;
+    startRun(); G.mode='pause'; G.pauseHow=false; G.pauseI=0; drawPause(); const r2=G._pauseRects&&G._pauseRects.length===PAUSE.length;
+    G.mode='select'; drawSelect(); const r3=G._selRects.length===CAMPAIGN_N;
+    ok('mode select / pause / studio stage select render + record their tap bands', r1&&r2&&r3, JSON.stringify({r1,r2,r3})); }
+  catch(e){ ok('mode select / pause render', false, String(e&&e.message||e)); }
+  resetCabs(); G.gameover=false;   // leave engine clean for any later checks
   return R;
 }
 function renderTestReport(R){ const pass=R.every(r=>r.ok);
@@ -5298,7 +5398,11 @@ const _goM=QS.match(/[?&]go=(\d+)/i);                                  // 101-EX
 if(/[?&](selftest|test)/.test(QS)){ renderTestReport(selfTest()); }
 else if(_sceneM){ setupScene(_sceneM[1]); requestAnimationFrame(frame); }
 else if(_goM){ const gi=Math.max(0,Math.min(LEVELS.length-1,parseInt(_goM[1],10)||0));
-  startRun(); G.li=gi; loadLevel(); G.mode='brief'; requestAnimationFrame(frame); }   // off-ramp from THE 101 -> that level's brief
+  startRun(); G.li=gi; loadLevel(); G.mode='brief';                                          // off-ramp from THE 101 -> that level's brief
+  if(/[?&]from=101/.test(QS)){ G.stageSelect=true; const b=(QS.match(/[?&]back=([\w.%-]+\.html)/)||[])[1]||'index.html';
+    G.from101='POV DRIVE TEST.html?run=101&from=menu&back='+b; }                               // 1116: a 101 exit = a stage run (non-canonical) that returns to the freeway
+  requestAnimationFrame(frame); }
+else if(/[?&]menu\b/.test(QS)){ startAttractTitle(); G.menuI=0; G.mode='menu'; requestAnimationFrame(frame); }   // back from THE 101 -> the mode select (logos already seen)
 else { G.level=LEVELS[0]; G.mode='boot'; requestAnimationFrame(frame); }
 </script>
 <script>
@@ -5329,11 +5433,14 @@ else { G.level=LEVELS[0]; G.mode='boot'; requestAnimationFrame(frame); }
     sCol.appendChild(zone); bCol.appendChild(grid);
     chip.style.left=HAND==='R'?'':'calc(env(safe-area-inset-left) + 10px)'; chip.style.right=HAND==='R'?'calc(env(safe-area-inset-right) + 10px)':'';   // over the stick column
     chip.textContent=HAND==='R'?'⇄ RIGHTY':'⇄ LEFTY';
+    var pz=document.getElementById('mzpause'); if(pz){ pz.style.right=HAND==='R'?'':'calc(env(safe-area-inset-right) + 10px)'; pz.style.left=HAND==='R'?'calc(env(safe-area-inset-left) + 10px)':''; }   // over the BUTTON column
     var W0=Math.min(col*0.86,innerHeight*0.5); sk=W0/SG.w; sdpr=Math.min(devicePixelRatio||1,2.5);
     var Hh=(SG.h-SG.by+SG.r+12)*sk; scv.style.width=W0+'px'; scv.style.height=Hh+'px'; scv.width=Math.round(W0*sdpr); scv.height=Math.round(Hh*sdpr);
   }
   window.setMzHand=function(h){ HAND=h==='R'?'R':'L'; layout(); };
   chip.addEventListener('pointerdown',function(e){ e.preventDefault(); buzz(); setMzHand(HAND==='R'?'L':'R'); });
+  // 1116: a PAUSE chip while driving (the phone has no ESC / SELECT) -> the same pause menu; the stick moves its cursor, START picks
+  var pzc=document.getElementById('mzpause'); if(pzc) pzc.addEventListener('pointerdown',function(e){ e.preventDefault(); buzz(); try{ togglePause(); }catch(_){} });
   // ---- buttons: deckIn() is the deck's own input path (held = gas/brake/laylow; edge = ride/horn/start) ----
   Array.prototype.forEach.call(grid.querySelectorAll('.mzb'),function(el){ var a=el.getAttribute('data-a');
     el.addEventListener('pointerdown',function(e){ e.preventDefault(); try{el.setPointerCapture(e.pointerId);}catch(_){} el.classList.add('down'); buzz(); try{deckIn(a,true);}catch(_){} });
@@ -5355,7 +5462,7 @@ else { G.level=LEVELS[0]; G.mode='boot'; requestAnimationFrame(frame); }
   addEventListener('blur',function(){ sid=null; setDir(0,0); });
   // a TAP on the game outside driving = START (coin / skip / advance); STAGE SELECT keeps its own point-and-click
   if(canvas) canvas.addEventListener('pointerdown',function(e){ if(!ON||e.pointerType==='mouse') return;
-    try{ if(G.mode!=='drive'&&G.mode!=='select') deckIn('start',true); }catch(_){} });
+    try{ if(G.mode!=='drive'&&G.mode!=='select'&&G.mode!=='menu'&&G.mode!=='pause') deckIn('start',true); }catch(_){} });   // menu/pause/select = point-and-tap their own rows
   function drawStick(){
     sv.x+=(st.x-sv.x)*0.45; sv.y+=(st.y-sv.y)*0.45;
     var W=scv.width, H=scv.height, k=sk*sdpr; sx.setTransform(1,0,0,1,0,0); sx.clearRect(0,0,W,H);
@@ -5369,7 +5476,7 @@ else { G.level=LEVELS[0]; G.mode='boot'; requestAnimationFrame(frame); }
   }
   var _lay=false; function relay(){ if(_lay)return; _lay=true; try{layout();}finally{_lay=false;} }
   addEventListener('resize',relay); addEventListener('orientationchange',function(){ setTimeout(relay,150); }); relay();
-  (function tick(){ requestAnimationFrame(tick); if(!ON) return; drawStick(); try{ chip.style.display=(G.mode==='drive')?'none':''; }catch(_){} })();
+  (function tick(){ requestAnimationFrame(tick); if(!ON) return; drawStick(); try{ chip.style.display=(G.mode==='drive'||G.mode==='pause')?'none':''; if(pzc) pzc.style.display=(G.mode==='drive'&&!G.demo)?'block':'none'; }catch(_){} })();
   if(Q.has('qa')) window.__mzPad={ hand:function(){ return HAND; }, st:function(){ return [st.x,st.y]; }, held:function(){ return JSON.parse(JSON.stringify(held)); } };
 })();
 </script>
