@@ -3817,20 +3817,23 @@ function drawBeam(b){ const [sx,sy]=W2S(b.wx,b.wy); const z=cam.z;
 function drawHUD(){
   const L=G.level; ctx.save(); ctx.textBaseline='top';
   // TIME (TL)
-  panel(14,14,150,52); lab(22,20,'TIME LEFT');
+  hudAt(0,0,()=>{ panel(14,14,150,54,G.timeLeft<=10?getCss('--hot'):null); lab(26,20,'TIME LEFT');
   ctx.font='bold 30px "Courier New",monospace'; ctx.fillStyle=G.timeLeft<=10?getCss('--hot'):getCss('--ink');
-  ctx.fillText(fmt(G.timeLeft),22,36);
+  ctx.fillText(fmt(G.timeLeft),26,36); });
   // DELIVERIES (TR)
-  panel(W-184,14,170,52); lab(W-176,20, L.allgreens?'GREENS':'DELIVERIES');
+  hudAt(W,0,()=>{ panel(W-184,14,170,54); lab(W-172,20, L.allgreens?'GREENS':'DELIVERIES');
   ctx.font='bold 30px "Courier New",monospace'; ctx.fillStyle=getCss('--ink');
-  ctx.textAlign='right'; ctx.fillText(G.delivered+' of '+L.fares,W-22,36); ctx.textAlign='left';
+  ctx.textAlign='right'; ctx.fillText(G.delivered+' of '+L.fares,W-22,36); ctx.textAlign='left'; });
   // HEAT + DAMAGE + LIVES (top center)
   const cx=W/2;
+  hudAt(cx,0,()=>{
+  ctx.fillStyle='rgba(6,8,12,.55)'; rr(cx-100,8,200,74,8); ctx.fill();
   bar(cx-90,16,180,12,G.heat/100,'HEAT', heatCol(G.heat));
   bar(cx-90,40,180,10,G.damage/100,'DAMAGE', getCss('--hot'));
   bar(cx-90,56,180,8, G.hornBroken?1:G.horn/100, G.hornBroken?'GALLOP BLOWN':'GALLOP', G.hornBroken?getCss('--hot'):'#cdd3da');
   ctx.font='bold 18px "Courier New",monospace'; ctx.fillStyle=getCss('--gold'); ctx.textAlign='center';
   ctx.fillText('CAR '+'▰'.repeat(Math.max(0,G.lives)), cx, 72); ctx.textAlign='left';
+  });
   if(G.copOn){ ctx.fillStyle=Math.sin(G.t*10)>0?getCss('--hot'):getCss('--cyan'); ctx.textAlign='center';
     ctx.font='bold 16px "Courier New",monospace'; ctx.fillText('◢ COPS — LAY LOW ◣',cx,88); ctx.textAlign='left'; }
   else if(L.run && G.car.spd>L.topMph*0.58){ ctx.fillStyle=Math.sin(G.t*14)>0?getCss('--hot'):getCss('--amber');
@@ -3839,14 +3842,17 @@ function drawHUD(){
   if(G.repo){ ctx.fillStyle=Math.sin(G.t*9)>0?getCss('--amber'):getCss('--hot'); ctx.textAlign='center';
     ctx.font='bold 16px "Courier New",monospace'; ctx.fillText('◢ JACKIE BOYE — THE REPO MAN ◣',cx,104); ctx.textAlign='left'; }
   // MINIMAP (BL) — the map you memorize
-  drawMiniMap(14,H-150,150,118);
-  ctx.font='bold 22px "Courier New",monospace'; ctx.fillStyle=getCss('--ink'); ctx.fillText(L.name,16,H-28);
+  hudAt(0,H,()=>{ drawMiniMap(14,H-150,150,118);
+  ctx.font='bold 20px "Courier New",monospace'; const nw=ctx.measureText(L.name).width;
+  ctx.fillStyle='rgba(6,8,12,.78)'; rr(10,H-31,nw+14,26,6); ctx.fill();
+  ctx.fillStyle=getCss('--ink'); ctx.fillText(L.name,17,H-28); });
   // SPEED (BR)
-  ctx.textAlign='right'; ctx.font='14px "Courier New",monospace'; ctx.fillStyle=getCss('--ink-dim'); ctx.fillText('SPEED',W-22,H-92);
+  hudAt(W,H,()=>{ ctx.fillStyle='rgba(6,8,12,.62)'; rr(W-118,H-98,106,90,8); ctx.fill();
+  ctx.textAlign='right'; ctx.font='bold 13px "Courier New",monospace'; ctx.fillStyle='#b7c0c9'; ctx.fillText('SPEED',W-22,H-92);
   ctx.font='bold 48px "Courier New",monospace'; ctx.fillStyle=getCss('--amber');
   ctx.fillText(String(Math.round(G.car.spd)).padStart(3,'0'),W-22,H-78);
-  ctx.font='bold 18px "Courier New",monospace'; ctx.fillStyle=getCss('--ink-dim'); ctx.fillText('MPH',W-22,H-30);
-  ctx.textAlign='left';
+  ctx.font='bold 18px "Courier New",monospace'; ctx.fillStyle='#b7c0c9'; ctx.fillText('MPH',W-22,H-30);
+  ctx.textAlign='left'; });
   if(keys.laylow){ ctx.fillStyle=getCss('--cyan'); ctx.font='bold 15px "Courier New",monospace'; ctx.fillText('▼ LAYING LOW',W-150,H-60); }
   if(HANDOFF && G.park){ ctx.save(); ctx.fillStyle='#1a0610'; ctx.strokeStyle='#ff2d9e'; ctx.lineWidth=3;            // the PARKING BRAKE lamp
     ctx.beginPath(); ctx.arc(W-190,H-62,17,0,7); ctx.fill(); ctx.stroke(); ctx.fillStyle='#ff2d9e'; ctx.font='bold 22px "Courier New",monospace';
@@ -3867,20 +3873,23 @@ function drawHUD(){
       ctx.restore(); } }
   if(HANDOFF && G.park){ const p=G.park, ready=p.t>=p.need; ctx.textAlign='center';      // THE HAND-OFF: parked — the walk, then ACCEPT
     ctx.font='bold 22px "Courier New",monospace';
-    const py=H*0.68; ctx.fillStyle='rgba(6,8,12,.72)'; rr(W/2-235,py-28,470,74,10); ctx.fill();
+    const hk=HUDK(), py=H*(hk>1?0.62:0.68); ctx.save(); ctx.translate(W/2,py); ctx.scale(hk,hk); ctx.translate(-W/2,-py); ctx.textBaseline='alphabetic';   // HUD 1117: laid out on baselines (py offsets); drawHUD's 'top' sank title+bar onto the frame
+    panel(W/2-235,py-26,470,76,'#ff2d9e');
     if(ready){ ctx.fillStyle=Math.sin(G.t*9)>-.2?'#ff2d9e':'#ffe9f5'; ctx.fillText('ACCEPT  ▸ PARK', W/2, py); }
     else { ctx.fillStyle=getCss('--gold'); ctx.fillText(p.out?'GETTING OUT…':p.who==='runner'?'ORDER COMING OUT…':p.who==='customer'?'HERE THEY COME…':p.who==='crew'?'LOADING…':'RIDER WALKING OVER…', W/2, py);
       ctx.fillStyle='rgba(0,0,0,.55)'; ctx.fillRect(W/2-90,py+14,180,8); ctx.fillStyle='#ff2d9e'; ctx.fillRect(W/2-90,py+14,180*p.t/p.need,8); }
-    ctx.font='bold 13px "Courier New",monospace'; ctx.fillStyle='#e8e8e8'; ctx.fillText('PARKING BRAKE ON · GAS = pull away (cancels)', W/2, py+36); ctx.textAlign='left'; }
+    ctx.font='bold 14px "Courier New",monospace'; ctx.fillStyle='#e8e8e8'; ctx.fillText('PARKING BRAKE ON · GAS = pull away (cancels)', W/2, py+36); ctx.textAlign='left'; ctx.restore(); }
   else if(G.rideHere && !L.allgreens && G.fares[G.fareIdx]){ const f=G.fares[G.fareIdx]; ctx.textAlign='center';
     ctx.fillStyle=Math.sin(G.t*7)>-.3?getCss('--gold'):'rgba(0,0,0,0)';
     ctx.font='bold 22px "Courier New",monospace';
     const tail=!HANDOFF?'  ▸ PARK':(G.car.spd>TUNE.parkMaxSpd?'  ▸ BRAKE TO STOP':'  ▸ PARK');
     ctx.fillText((f.phase==='pickup'?'PICK UP · '+(f.pickup.name||''):'DROP OFF · '+(f.drop.name||''))+tail, W/2, H*0.44); ctx.textAlign='left'; }
-  if(G.toast&&G.mode!=='brief'){ ctx.textAlign='center'; ctx.font='bold 21px "Courier New",monospace';   // 1116: box sized + centred on the text (it sat under it); the brief shows it in its own card
-    const tw=Math.min(W-24,ctx.measureText(G.toast.text).width+36);
-    ctx.fillStyle='rgba(0,0,0,.62)'; rr(W/2-tw/2,H*0.5-22,tw,34,8); ctx.fill();
-    ctx.fillStyle=getCss('--gold'); ctx.fillText(G.toast.text,W/2,H*0.5+2); ctx.textAlign='left'; }
+  if(G.toast&&G.mode!=='brief'){ ctx.save(); ctx.textAlign='center';   // 1116: box sized + centred on the text; 1117r2: up off the car (it sat ON it), glass card
+    const hk=HUDK(), ty=H*0.205; let fs=21; ctx.font='bold '+fs+'px "Courier New",monospace';
+    let tw=ctx.measureText(G.toast.text).width+44; const mw=(W-24)/hk; if(tw>mw){ fs=Math.max(11,Math.floor(fs*(mw-44)/(tw-44))); ctx.font='bold '+fs+'px "Courier New",monospace'; tw=mw; }
+    ctx.translate(W/2,ty); ctx.scale(hk,hk); ctx.translate(-W/2,-ty);
+    panel(W/2-tw/2,ty-19,tw,38,getCss('--amber'));
+    ctx.textBaseline='middle'; ctx.fillStyle=getCss('--gold'); ctx.fillText(G.toast.text,W/2+3,ty+1); ctx.restore(); }
   ctx.restore();
 }
 function drawMiniMap(x,y,w,h){
@@ -3960,7 +3969,11 @@ function drawTravel(){ const L=G.level, M=MISSIONS[G.li]||{}, prog=Math.min(1,G.
   ctx.fillStyle=getCss('--gold'); rr(bx,byy,Math.max(3,bw*prog),5,3); ctx.fill();
   blink('PRESS START — SKIP',H*0.86+34);
 }
-function textPlate(y0,y1){ const w=Math.min(W*0.9,700); ctx.fillStyle='rgba(5,7,11,.72)'; rr(W/2-w/2,y0,w,y1-y0,14); ctx.fill(); }   // 1116 legibility card
+function textPlate(y0,y1){ const w=Math.min(W*0.9,700), x=W/2-w/2; ctx.save();   // 1116 legibility card · 1117r2 the HUD glass (gradient, chrome hairline, gold rule)
+  const g=ctx.createLinearGradient(0,y0,0,y1); g.addColorStop(0,'rgba(16,20,28,.86)'); g.addColorStop(1,'rgba(4,6,10,.90)');
+  ctx.fillStyle=g; rr(x,y0,w,y1-y0,14); ctx.fill(); ctx.strokeStyle='rgba(255,255,255,.16)'; ctx.lineWidth=1; ctx.stroke();
+  ctx.strokeStyle='rgba(255,255,255,.36)'; ctx.beginPath(); ctx.moveTo(x+16,y0+1.5); ctx.lineTo(x+w-16,y0+1.5); ctx.stroke();
+  ctx.fillStyle=getCss('--gold'); ctx.globalAlpha=0.85; rr(W/2-42,y1-7,84,3,1.5); ctx.fill(); ctx.restore(); }
 function drawBrief(){ const L=G.level; veil(.5); textPlate(H*0.30-62,H*0.30+236);
   big(L.name,H*0.30,L.final?getCss('--hot'):'#fff');
   const tag=L.theater?'THE COURTESY · DTLA':L.final?'THE LAST RIDE':L.run?'THE PALMDALE RUN':L.allgreens?'ALL GREENS':L.queen?"QUEEN'S GAME DROP-OFF":L.haul?'THE HAUL':(L.night?'NIGHT SHIFT':'VALLEY RUN');
@@ -4503,14 +4516,23 @@ function drawCarAt(sx,sy,wid,len,zebra){ ctx.save(); ctx.translate(sx,sy);
 function getCss(v){ if(v[0]!=='-') return v; return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
 function rr(x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r);
   ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
-function panel(x,y,w,h){ ctx.fillStyle='rgba(8,11,16,.66)'; rr(x,y,w,h,7); ctx.fill();
-  ctx.strokeStyle='rgba(255,255,255,.12)'; ctx.lineWidth=1; ctx.stroke(); }
-function lab(x,y,s){ ctx.font='12px "Courier New",monospace'; ctx.fillStyle=getCss('--ink-dim'); ctx.textAlign='left'; ctx.fillText(s,x,y); }
+// 1117r2 (realism phase 2): the HUD glass — a near-opaque smoked panel, a chrome hairline on top, a gold tick at the
+// left (the deck's chrome-bezel language), so the readouts hold against the new darker, busier world. Render-only.
+function panel(x,y,w,h,acc){ ctx.save(); const g=ctx.createLinearGradient(0,y,0,y+h); g.addColorStop(0,'rgba(18,22,30,.86)'); g.addColorStop(1,'rgba(6,8,12,.90)');
+  ctx.fillStyle=g; rr(x,y,w,h,7); ctx.fill(); ctx.strokeStyle='rgba(255,255,255,.16)'; ctx.lineWidth=1; ctx.stroke();
+  ctx.strokeStyle='rgba(255,255,255,.38)'; ctx.beginPath(); ctx.moveTo(x+8,y+1.5); ctx.lineTo(x+w-8,y+1.5); ctx.stroke();
+  ctx.fillStyle=acc||getCss('--gold'); rr(x+3,y+8,3,h-16,1.5); ctx.fill(); ctx.restore(); }
+function lab(x,y,s){ ctx.font='bold 12px "Courier New",monospace'; ctx.fillStyle='#b7c0c9'; ctx.textAlign='left'; ctx.fillText(s,x,y); }
 function bar(x,y,w,h,frac,label,col){ frac=Math.max(0,Math.min(1,frac));
-  ctx.fillStyle='rgba(0,0,0,.5)'; rr(x,y,w,h,4); ctx.fill();
+  ctx.fillStyle='rgba(4,6,10,.82)'; rr(x-2,y-2,w+4,h+4,5); ctx.fill(); ctx.strokeStyle='rgba(255,255,255,.14)'; ctx.lineWidth=1; ctx.stroke();
   ctx.fillStyle=col; rr(x+1,y+1,(w-2)*frac,h-2,3); ctx.fill();
-  ctx.font='bold 10px "Courier New",monospace'; ctx.fillStyle='#000'; ctx.textAlign='left'; ctx.fillText(label,x+5,y+1);
-  ctx.fillStyle='#fff'; ctx.fillText(label,x+4,y); }
+  const ly=y+h/2+0.5; ctx.save(); ctx.textBaseline='middle';   // HUD 1117: label centred on the bar (was top-pinned; hung off GALLOP's bottom edge)
+  ctx.font='bold 11px "Courier New",monospace'; ctx.fillStyle='#000'; ctx.textAlign='left'; ctx.fillText(label,x+5,ly+1);
+  ctx.fillStyle='#fff'; ctx.fillText(label,x+4,ly); ctx.restore(); }
+// the HUD's own scale: the phone pad shows the 900-unit square at ~390 px, so the corner readouts grow 1.5x there
+// (each group scales about its own corner, so nothing moves toward the car). Desktop = 1.
+function HUDK(){ return UIK()>1?1.5:1; }
+function hudAt(ax,ay,f){ const k=HUDK(); ctx.save(); ctx.translate(ax,ay); ctx.scale(k,k); ctx.translate(-ax,-ay); f(); ctx.restore(); }
 function heatCol(h){ return h>75?getCss('--hot'):h>40?getCss('--amber'):getCss('--green'); }
 function veil(a){ ctx.fillStyle='rgba(4,6,10,'+a+')'; ctx.fillRect(0,0,W,H); }
 // 1116: on the PHONE PAD the square game is ~390 px tall, so screen text gets a 1.25x boost (UIK), and every line

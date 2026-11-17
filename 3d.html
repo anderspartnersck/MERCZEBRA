@@ -1774,6 +1774,71 @@ var V3D = (function(){
       ctx.save(); ctx.globalAlpha = f; ctx.imageSmoothingEnabled = true; blit(im, e.rect); ctx.restore(); }
     badge(); }
 
+  // HAZ (1117r2, realism phase 2): value + colour separation for everything that can hurt you, drawn UNDER the
+  // vehicles (after the fares, before drawTraffic) so each car sits in its own keyline. Reads G only; never writes.
+  //   every car: a pale keyline (a dark car no longer melts into the new dark asphalt)
+  //   double-parked + shed cars: an amber keyline that breathes with the flashers   cops: a red/blue ground strobe
+  //   Jackie: a hard red keyline   closures: an orange/white hazard frame round the dead road (the wash alone vanished)
+  var HAZ = !/[?&]v3dhaz=0\b/.test(Q);
+  function key(x, y, ang, kind, col, lw, fill){ var p = W2S(x, y), z = cam.z;
+    if(p[0]<-60||p[1]<-60||p[0]>W+60||p[1]>H+60) return;
+    var V = (typeof VEH!=='undefined' && VEH[kind]) || {len:24, wid:12}, l = V.len*z, w = V.wid*z, g = lw*z;
+    ctx.save(); ctx.translate(p[0], p[1]); ctx.rotate(ang);
+    if(fill){ ctx.fillStyle = fill; rr(-w/2-g*2.2, -l/2-g*2.2, w+g*4.4, l+g*4.4, 4.5*z); ctx.fill(); }
+    ctx.fillStyle = col; rr(-w/2-g, -l/2-g, w+g*2, l+g*2, 3.6*z); ctx.fill();
+    ctx.restore(); }
+  function haz(L){ if(!HAZ || !live(L)) return; var t = G.t, z = cam.z;
+    ctx.save();
+    var night = L.night, pale = night ? 'rgba(210,214,226,.42)' : 'rgba(238,234,222,.62)';
+    if(G.traffic) for(var i=0;i<G.traffic.length;i++){ var c = G.traffic[i];
+      var ang = c.vert ? (c.dir>0?Math.PI:0) : (c.dir>0?Math.PI/2:-Math.PI/2);
+      key(c.vert?c.line:c.pos, c.vert?c.pos:c.line, ang, c.kind, pale, 0.9); }
+    var pulse = 0.55 + 0.45*Math.max(0, Math.sin(t*7));
+    if(G.parked) for(var i=0;i<G.parked.length;i++){ var p = G.parked[i];
+      key(p.x, p.y, p.ang, p.kind, 'rgba(255,178,40,'+(0.70+0.30*pulse).toFixed(3)+')', 1.6, 'rgba(255,150,20,'+(0.16*pulse).toFixed(3)+')'); }
+    if(L.hauler && G.haulHazards) for(var i=0;i<G.haulHazards.length;i++){ var h = G.haulHazards[i];
+      key(h.x, h.y, h.ang, 'sedan', 'rgba(255,178,40,.9)', 1.6, 'rgba(255,150,20,.14)'); }
+    if(G.copOn && G.cops) for(var i=0;i<G.cops.length;i++){ var c = G.cops[i], p = W2S(c.x, c.y), r = 30*z, red = Math.sin(t*12+i) > 0;
+      var g = ctx.createRadialGradient(p[0], p[1], 2, p[0], p[1], r);
+      g.addColorStop(0, red ? 'rgba(255,40,50,.55)' : 'rgba(60,110,255,.55)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(p[0], p[1], r, 0, 7); ctx.fill();
+      key(c.x, c.y, c.ang, 'cop', 'rgba(250,250,255,.85)', 1.2); }
+    if(G.repo) key(G.repo.x, G.repo.y, G.repo.ang, 'repo', 'rgba(255,48,48,.92)', 1.8, 'rgba(255,40,40,.16)');
+    if(G.military) for(var i=0;i<G.military.length;i++){ var m = G.military[i]; key(m.x, m.y, m.ang, 'military', 'rgba(255,90,40,.85)', 1.6); }
+    if(G.closures && G.closures.length){ var half = ROADH*0.92;
+      for(var i=0;i<G.closures.length;i++){ var c = G.closures[i], vert = c.axis==='v', line = c.gi*CELL;
+        var a = c.bk*CELL+ROADH+TUNE.closePad, b = (c.bk+1)*CELL-ROADH-TUNE.closePad;
+        var p0 = W2S(vert?line-half:a, vert?a:line-half), p1 = W2S(vert?line+half:b, vert?b:line+half);
+        var rx = Math.min(p0[0],p1[0]), ry = Math.min(p0[1],p1[1]), rw = Math.abs(p1[0]-p0[0]), rh = Math.abs(p1[1]-p0[1]);
+        if(rx>W+60||ry>H+60||rx+rw<-60||ry+rh<-60) continue;
+        ctx.save(); ctx.beginPath(); ctx.rect(rx, ry, rw, rh); ctx.clip();
+        ctx.fillStyle = 'rgba(255,140,20,.16)'; ctx.fillRect(rx, ry, rw, rh);
+        ctx.strokeStyle = 'rgba(255,150,30,.30)'; ctx.lineWidth = 4*z; var st = 14*z;
+        for(var d=-rh; d<rw+rh; d+=st){ ctx.beginPath(); ctx.moveTo(rx+d, ry); ctx.lineTo(rx+d+rh, ry+rh); ctx.stroke(); }
+        ctx.restore();
+        ctx.lineWidth = 2.4*z; ctx.setLineDash([7*z, 5*z]);
+        ctx.strokeStyle = 'rgba(255,150,30,.95)'; ctx.strokeRect(rx, ry, rw, rh);
+        ctx.lineDashOffset = 6*z; ctx.strokeStyle = 'rgba(255,255,255,.85)'; ctx.strokeRect(rx, ry, rw, rh);
+        ctx.setLineDash([]); ctx.lineDashOffset = 0; } }
+    ctx.restore(); }
+
+  // CLOUDS (plate mode): the original wash flattened the new value range, so the 3D page draws a lighter one —
+  // the same deterministic drift off G.t, at about 40% (the marine layer stays, the streets keep their contrast).
+  function clouds(L){ if(L.zone==='downtown') return;
+    var night = L.night, mojave = L.zone==='mojave', t = G.t; ctx.save();
+    if(!night){ var g = ctx.createLinearGradient(0,0,0,H);
+      if(mojave){ g.addColorStop(0,'rgba(150,150,138,0)'); g.addColorStop(1,'rgba(212,190,150,0.07)'); }
+      else { g.addColorStop(0,'rgba(150,160,172,0.08)'); g.addColorStop(0.6,'rgba(182,184,180,0.0)'); g.addColorStop(1,'rgba(226,214,186,0.06)'); }
+      ctx.fillStyle = g; ctx.fillRect(0,0,W,H); }
+    ctx.globalAlpha = night ? 0.07 : 0.08;
+    var col = night ? '14,18,28' : (mojave ? '122,110,86' : '128,134,142');
+    for(var i=0;i<4;i++){ var sp = 6+i*3, tt = t*sp;
+      var cx2 = ((i*617.3+tt)%(W+700))-350, cy2 = ((i*383.1+tt*0.5)%(H+500))-250, r = Math.min(W,H)*(0.55+0.18*i);
+      var gg = ctx.createRadialGradient(cx2,cy2,0,cx2,cy2,r);
+      gg.addColorStop(0,'rgba('+col+',0.8)'); gg.addColorStop(1,'rgba('+col+',0)');
+      ctx.fillStyle = gg; ctx.beginPath(); ctx.ellipse(cx2,cy2,r,r*0.62,0,0,7); ctx.fill(); }
+    ctx.restore(); }
+
   function badge(){ if(badgeT<=0 || typeof ctx==='undefined') return; badgeT -= Math.min(0.1, rdt||0.016);
     ctx.save(); ctx.font = 'bold 22px Menlo, monospace'; var w = ctx.measureText(msg).width + 28, h = 38, x = (W-w)/2, y = H*0.16 + 46;
     ctx.globalAlpha = Math.min(1, badgeT*1.5); ctx.fillStyle = 'rgba(10,12,16,.78)'; ctx.fillRect(x, y, w, h);
@@ -1782,7 +1847,7 @@ var V3D = (function(){
   if(typeof addEventListener!=='undefined') addEventListener('keydown', function(e){
     if(e.code==='Digit6'){ want = !want; for(var sk in sets) if(ready(sk)) latched[sk] = true;
       msg = want ? '3D VALLEY: ON' : '3D VALLEY: OFF'; badgeT = 1.8; } });
-  return { under:under, over:over, tick:tick, _state:function(){ return {want:want, fade:FADE, kon:KON, koff:KOFF, sets:sets, latched:latched}; } };
+  return { under:under, over:over, tick:tick, haz:haz, clouds:clouds, live:function(L){ return live(L); }, _state:function(){ return {want:want, fade:FADE, kon:KON, koff:KOFF, sets:sets, latched:latched}; } };
 })();
 
 function frame(now){
@@ -2372,7 +2437,7 @@ function drawScene(){
   if(G.closures&&G.closures.length){ if(L.filmshoot) drawFilmShoot(); else drawClosures(); }   // road-closed wrinkle (NoHo film shoot / Valley Village barricades)
   if(G.studios&&G.studios.length) drawStudios();   // BURBANK — twitchy studio-lot zones (searchlight + watched ring)
   if(L.theater) drawCourtesy();  // the Regent's marquee — the warmest thing in the level
-  drawClouds(L);                 // MAY GRAY sky — marine wash + drifting cloud-shadows (over ground+buildings, under the action)
+  if(V3D.live(L)) V3D.clouds(L); else drawClouds(L);                 // MAY GRAY sky — marine wash + drifting cloud-shadows (over ground+buildings, under the action)
   drawPeds(L);
   drawHandoff(L);                // THE HAND-OFF: stop zone, walker, the bag (1117)
   if(L.allgreens) drawGates();
@@ -2382,6 +2447,7 @@ function drawScene(){
   if(G.skidRun && G.exits) drawExits();
   if(G.blades && G.blades.phase!=='done') drawBlades();
   if(G.powerups.length) drawPowerups();
+  V3D.haz(L);                  // LAB3D r2: hazard keylines (under the cars)
   drawTraffic(L);
   if(G.parked&&G.parked.length) drawParked();     // ENCINO double-parked cars at the curb
   if(L.hauler){ drawHazards(); drawHauler(); }   // shed cars under the rig, then the rig over them
@@ -4056,20 +4122,23 @@ function drawBeam(b){ const [sx,sy]=W2S(b.wx,b.wy); const z=cam.z;
 function drawHUD(){
   const L=G.level; ctx.save(); ctx.textBaseline='top';
   // TIME (TL)
-  panel(14,14,150,52); lab(22,20,'TIME LEFT');
+  hudAt(0,0,()=>{ panel(14,14,150,54,G.timeLeft<=10?getCss('--hot'):null); lab(26,20,'TIME LEFT');
   ctx.font='bold 30px "Courier New",monospace'; ctx.fillStyle=G.timeLeft<=10?getCss('--hot'):getCss('--ink');
-  ctx.fillText(fmt(G.timeLeft),22,36);
+  ctx.fillText(fmt(G.timeLeft),26,36); });
   // DELIVERIES (TR)
-  panel(W-184,14,170,52); lab(W-176,20, L.allgreens?'GREENS':'DELIVERIES');
+  hudAt(W,0,()=>{ panel(W-184,14,170,54); lab(W-172,20, L.allgreens?'GREENS':'DELIVERIES');
   ctx.font='bold 30px "Courier New",monospace'; ctx.fillStyle=getCss('--ink');
-  ctx.textAlign='right'; ctx.fillText(G.delivered+' of '+L.fares,W-22,36); ctx.textAlign='left';
+  ctx.textAlign='right'; ctx.fillText(G.delivered+' of '+L.fares,W-22,36); ctx.textAlign='left'; });
   // HEAT + DAMAGE + LIVES (top center)
   const cx=W/2;
+  hudAt(cx,0,()=>{
+  ctx.fillStyle='rgba(6,8,12,.55)'; rr(cx-100,8,200,74,8); ctx.fill();
   bar(cx-90,16,180,12,G.heat/100,'HEAT', heatCol(G.heat));
   bar(cx-90,40,180,10,G.damage/100,'DAMAGE', getCss('--hot'));
   bar(cx-90,56,180,8, G.hornBroken?1:G.horn/100, G.hornBroken?'GALLOP BLOWN':'GALLOP', G.hornBroken?getCss('--hot'):'#cdd3da');
   ctx.font='bold 18px "Courier New",monospace'; ctx.fillStyle=getCss('--gold'); ctx.textAlign='center';
   ctx.fillText('CAR '+'▰'.repeat(Math.max(0,G.lives)), cx, 72); ctx.textAlign='left';
+  });
   if(G.copOn){ ctx.fillStyle=Math.sin(G.t*10)>0?getCss('--hot'):getCss('--cyan'); ctx.textAlign='center';
     ctx.font='bold 16px "Courier New",monospace'; ctx.fillText('◢ COPS — LAY LOW ◣',cx,88); ctx.textAlign='left'; }
   else if(L.run && G.car.spd>L.topMph*0.58){ ctx.fillStyle=Math.sin(G.t*14)>0?getCss('--hot'):getCss('--amber');
@@ -4078,14 +4147,17 @@ function drawHUD(){
   if(G.repo){ ctx.fillStyle=Math.sin(G.t*9)>0?getCss('--amber'):getCss('--hot'); ctx.textAlign='center';
     ctx.font='bold 16px "Courier New",monospace'; ctx.fillText('◢ JACKIE BOYE — THE REPO MAN ◣',cx,104); ctx.textAlign='left'; }
   // MINIMAP (BL) — the map you memorize
-  drawMiniMap(14,H-150,150,118);
-  ctx.font='bold 22px "Courier New",monospace'; ctx.fillStyle=getCss('--ink'); ctx.fillText(L.name,16,H-28);
+  hudAt(0,H,()=>{ drawMiniMap(14,H-150,150,118);
+  ctx.font='bold 20px "Courier New",monospace'; const nw=ctx.measureText(L.name).width;
+  ctx.fillStyle='rgba(6,8,12,.78)'; rr(10,H-31,nw+14,26,6); ctx.fill();
+  ctx.fillStyle=getCss('--ink'); ctx.fillText(L.name,17,H-28); });
   // SPEED (BR)
-  ctx.textAlign='right'; ctx.font='14px "Courier New",monospace'; ctx.fillStyle=getCss('--ink-dim'); ctx.fillText('SPEED',W-22,H-92);
+  hudAt(W,H,()=>{ ctx.fillStyle='rgba(6,8,12,.62)'; rr(W-118,H-98,106,90,8); ctx.fill();
+  ctx.textAlign='right'; ctx.font='bold 13px "Courier New",monospace'; ctx.fillStyle='#b7c0c9'; ctx.fillText('SPEED',W-22,H-92);
   ctx.font='bold 48px "Courier New",monospace'; ctx.fillStyle=getCss('--amber');
   ctx.fillText(String(Math.round(G.car.spd)).padStart(3,'0'),W-22,H-78);
-  ctx.font='bold 18px "Courier New",monospace'; ctx.fillStyle=getCss('--ink-dim'); ctx.fillText('MPH',W-22,H-30);
-  ctx.textAlign='left';
+  ctx.font='bold 18px "Courier New",monospace'; ctx.fillStyle='#b7c0c9'; ctx.fillText('MPH',W-22,H-30);
+  ctx.textAlign='left'; });
   if(keys.laylow){ ctx.fillStyle=getCss('--cyan'); ctx.font='bold 15px "Courier New",monospace'; ctx.fillText('▼ LAYING LOW',W-150,H-60); }
   if(HANDOFF && G.park){ ctx.save(); ctx.fillStyle='#1a0610'; ctx.strokeStyle='#ff2d9e'; ctx.lineWidth=3;            // the PARKING BRAKE lamp
     ctx.beginPath(); ctx.arc(W-190,H-62,17,0,7); ctx.fill(); ctx.stroke(); ctx.fillStyle='#ff2d9e'; ctx.font='bold 22px "Courier New",monospace';
@@ -4106,20 +4178,23 @@ function drawHUD(){
       ctx.restore(); } }
   if(HANDOFF && G.park){ const p=G.park, ready=p.t>=p.need; ctx.textAlign='center';      // THE HAND-OFF: parked — the walk, then ACCEPT
     ctx.font='bold 22px "Courier New",monospace';
-    const py=H*0.68; ctx.fillStyle='rgba(6,8,12,.72)'; rr(W/2-235,py-28,470,74,10); ctx.fill();
+    const hk=HUDK(), py=H*(hk>1?0.62:0.68); ctx.save(); ctx.translate(W/2,py); ctx.scale(hk,hk); ctx.translate(-W/2,-py); ctx.textBaseline='alphabetic';   // HUD 1117: laid out on baselines (py offsets); drawHUD's 'top' sank title+bar onto the frame
+    panel(W/2-235,py-26,470,76,'#ff2d9e');
     if(ready){ ctx.fillStyle=Math.sin(G.t*9)>-.2?'#ff2d9e':'#ffe9f5'; ctx.fillText('ACCEPT  ▸ PARK', W/2, py); }
     else { ctx.fillStyle=getCss('--gold'); ctx.fillText(p.out?'GETTING OUT…':p.who==='runner'?'ORDER COMING OUT…':p.who==='customer'?'HERE THEY COME…':p.who==='crew'?'LOADING…':'RIDER WALKING OVER…', W/2, py);
       ctx.fillStyle='rgba(0,0,0,.55)'; ctx.fillRect(W/2-90,py+14,180,8); ctx.fillStyle='#ff2d9e'; ctx.fillRect(W/2-90,py+14,180*p.t/p.need,8); }
-    ctx.font='bold 13px "Courier New",monospace'; ctx.fillStyle='#e8e8e8'; ctx.fillText('PARKING BRAKE ON · GAS = pull away (cancels)', W/2, py+36); ctx.textAlign='left'; }
+    ctx.font='bold 14px "Courier New",monospace'; ctx.fillStyle='#e8e8e8'; ctx.fillText('PARKING BRAKE ON · GAS = pull away (cancels)', W/2, py+36); ctx.textAlign='left'; ctx.restore(); }
   else if(G.rideHere && !L.allgreens && G.fares[G.fareIdx]){ const f=G.fares[G.fareIdx]; ctx.textAlign='center';
     ctx.fillStyle=Math.sin(G.t*7)>-.3?getCss('--gold'):'rgba(0,0,0,0)';
     ctx.font='bold 22px "Courier New",monospace';
     const tail=!HANDOFF?'  ▸ PARK':(G.car.spd>TUNE.parkMaxSpd?'  ▸ BRAKE TO STOP':'  ▸ PARK');
     ctx.fillText((f.phase==='pickup'?'PICK UP · '+(f.pickup.name||''):'DROP OFF · '+(f.drop.name||''))+tail, W/2, H*0.44); ctx.textAlign='left'; }
-  if(G.toast&&G.mode!=='brief'){ ctx.textAlign='center'; ctx.font='bold 21px "Courier New",monospace';   // 1116: box sized + centred on the text (it sat under it); the brief shows it in its own card
-    const tw=Math.min(W-24,ctx.measureText(G.toast.text).width+36);
-    ctx.fillStyle='rgba(0,0,0,.62)'; rr(W/2-tw/2,H*0.5-22,tw,34,8); ctx.fill();
-    ctx.fillStyle=getCss('--gold'); ctx.fillText(G.toast.text,W/2,H*0.5+2); ctx.textAlign='left'; }
+  if(G.toast&&G.mode!=='brief'){ ctx.save(); ctx.textAlign='center';   // 1116: box sized + centred on the text; 1117r2: up off the car (it sat ON it), glass card
+    const hk=HUDK(), ty=H*0.205; let fs=21; ctx.font='bold '+fs+'px "Courier New",monospace';
+    let tw=ctx.measureText(G.toast.text).width+44; const mw=(W-24)/hk; if(tw>mw){ fs=Math.max(11,Math.floor(fs*(mw-44)/(tw-44))); ctx.font='bold '+fs+'px "Courier New",monospace'; tw=mw; }
+    ctx.translate(W/2,ty); ctx.scale(hk,hk); ctx.translate(-W/2,-ty);
+    panel(W/2-tw/2,ty-19,tw,38,getCss('--amber'));
+    ctx.textBaseline='middle'; ctx.fillStyle=getCss('--gold'); ctx.fillText(G.toast.text,W/2+3,ty+1); ctx.restore(); }
   ctx.restore();
 }
 function drawMiniMap(x,y,w,h){
@@ -4199,7 +4274,11 @@ function drawTravel(){ const L=G.level, M=MISSIONS[G.li]||{}, prog=Math.min(1,G.
   ctx.fillStyle=getCss('--gold'); rr(bx,byy,Math.max(3,bw*prog),5,3); ctx.fill();
   blink('PRESS START — SKIP',H*0.86+34);
 }
-function textPlate(y0,y1){ const w=Math.min(W*0.9,700); ctx.fillStyle='rgba(5,7,11,.72)'; rr(W/2-w/2,y0,w,y1-y0,14); ctx.fill(); }   // 1116 legibility card
+function textPlate(y0,y1){ const w=Math.min(W*0.9,700), x=W/2-w/2; ctx.save();   // 1116 legibility card · 1117r2 the HUD glass (gradient, chrome hairline, gold rule)
+  const g=ctx.createLinearGradient(0,y0,0,y1); g.addColorStop(0,'rgba(16,20,28,.86)'); g.addColorStop(1,'rgba(4,6,10,.90)');
+  ctx.fillStyle=g; rr(x,y0,w,y1-y0,14); ctx.fill(); ctx.strokeStyle='rgba(255,255,255,.16)'; ctx.lineWidth=1; ctx.stroke();
+  ctx.strokeStyle='rgba(255,255,255,.36)'; ctx.beginPath(); ctx.moveTo(x+16,y0+1.5); ctx.lineTo(x+w-16,y0+1.5); ctx.stroke();
+  ctx.fillStyle=getCss('--gold'); ctx.globalAlpha=0.85; rr(W/2-42,y1-7,84,3,1.5); ctx.fill(); ctx.restore(); }
 function drawBrief(){ const L=G.level; veil(.5); textPlate(H*0.30-62,H*0.30+236);
   big(L.name,H*0.30,L.final?getCss('--hot'):'#fff');
   const tag=L.theater?'THE COURTESY · DTLA':L.final?'THE LAST RIDE':L.run?'THE PALMDALE RUN':L.allgreens?'ALL GREENS':L.queen?"QUEEN'S GAME DROP-OFF":L.haul?'THE HAUL':(L.night?'NIGHT SHIFT':'VALLEY RUN');
@@ -4742,14 +4821,23 @@ function drawCarAt(sx,sy,wid,len,zebra){ ctx.save(); ctx.translate(sx,sy);
 function getCss(v){ if(v[0]!=='-') return v; return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
 function rr(x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r);
   ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
-function panel(x,y,w,h){ ctx.fillStyle='rgba(8,11,16,.66)'; rr(x,y,w,h,7); ctx.fill();
-  ctx.strokeStyle='rgba(255,255,255,.12)'; ctx.lineWidth=1; ctx.stroke(); }
-function lab(x,y,s){ ctx.font='12px "Courier New",monospace'; ctx.fillStyle=getCss('--ink-dim'); ctx.textAlign='left'; ctx.fillText(s,x,y); }
+// 1117r2 (realism phase 2): the HUD glass — a near-opaque smoked panel, a chrome hairline on top, a gold tick at the
+// left (the deck's chrome-bezel language), so the readouts hold against the new darker, busier world. Render-only.
+function panel(x,y,w,h,acc){ ctx.save(); const g=ctx.createLinearGradient(0,y,0,y+h); g.addColorStop(0,'rgba(18,22,30,.86)'); g.addColorStop(1,'rgba(6,8,12,.90)');
+  ctx.fillStyle=g; rr(x,y,w,h,7); ctx.fill(); ctx.strokeStyle='rgba(255,255,255,.16)'; ctx.lineWidth=1; ctx.stroke();
+  ctx.strokeStyle='rgba(255,255,255,.38)'; ctx.beginPath(); ctx.moveTo(x+8,y+1.5); ctx.lineTo(x+w-8,y+1.5); ctx.stroke();
+  ctx.fillStyle=acc||getCss('--gold'); rr(x+3,y+8,3,h-16,1.5); ctx.fill(); ctx.restore(); }
+function lab(x,y,s){ ctx.font='bold 12px "Courier New",monospace'; ctx.fillStyle='#b7c0c9'; ctx.textAlign='left'; ctx.fillText(s,x,y); }
 function bar(x,y,w,h,frac,label,col){ frac=Math.max(0,Math.min(1,frac));
-  ctx.fillStyle='rgba(0,0,0,.5)'; rr(x,y,w,h,4); ctx.fill();
+  ctx.fillStyle='rgba(4,6,10,.82)'; rr(x-2,y-2,w+4,h+4,5); ctx.fill(); ctx.strokeStyle='rgba(255,255,255,.14)'; ctx.lineWidth=1; ctx.stroke();
   ctx.fillStyle=col; rr(x+1,y+1,(w-2)*frac,h-2,3); ctx.fill();
-  ctx.font='bold 10px "Courier New",monospace'; ctx.fillStyle='#000'; ctx.textAlign='left'; ctx.fillText(label,x+5,y+1);
-  ctx.fillStyle='#fff'; ctx.fillText(label,x+4,y); }
+  const ly=y+h/2+0.5; ctx.save(); ctx.textBaseline='middle';   // HUD 1117: label centred on the bar (was top-pinned; hung off GALLOP's bottom edge)
+  ctx.font='bold 11px "Courier New",monospace'; ctx.fillStyle='#000'; ctx.textAlign='left'; ctx.fillText(label,x+5,ly+1);
+  ctx.fillStyle='#fff'; ctx.fillText(label,x+4,ly); ctx.restore(); }
+// the HUD's own scale: the phone pad shows the 900-unit square at ~390 px, so the corner readouts grow 1.5x there
+// (each group scales about its own corner, so nothing moves toward the car). Desktop = 1.
+function HUDK(){ return UIK()>1?1.5:1; }
+function hudAt(ax,ay,f){ const k=HUDK(); ctx.save(); ctx.translate(ax,ay); ctx.scale(k,k); ctx.translate(-ax,-ay); f(); ctx.restore(); }
 function heatCol(h){ return h>75?getCss('--hot'):h>40?getCss('--amber'):getCss('--green'); }
 function veil(a){ ctx.fillStyle='rgba(4,6,10,'+a+')'; ctx.fillRect(0,0,W,H); }
 // 1116: on the PHONE PAD the square game is ~390 px tall, so screen text gets a 1.25x boost (UIK), and every line
