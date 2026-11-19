@@ -450,6 +450,53 @@ const PARK_BLOCK=[3,1];               // fixed green anchor (block bx,by) — no
 const LOT_BLOCK =[1,3];               // fixed open parking lot — southwest, by the wash mouth
 // lot types: which are open ground you can drive across vs. a walled block
 const DRIVABLE_LOT={lot:true, park:true};
+/* ---------- STREET LAYOUTS — breaking the ceaseless grid (Joe 1117r3) ----------
+   "a lot of the problem … is the ceaseless grid, def match the more irregular LA River road patterns for some of
+   these maps." The 6x6 lattice stays the AUTHORITY (traffic lanes, fares, closures, the AI and every gate run on it,
+   and the 10/07 lesson was: the grid-as-wallpaper and drive-the-photo experiments both died), so irregularity is
+   authored ON it, per level, as data:
+     cuts   a road SEGMENT built over (a T-junction / a merged superblock), or a STUB (a cul-de-sac: `keep` units of
+            it stay drivable off the `from` end). Permanent: the GALLOP can't jump it (it's buildings, not barricades).
+            Intersections always stay open.
+     links  extra drivable roads that are NOT on the lattice: a river road bending along the wash, a diagonal arterial,
+            a curving hillside drive. A polyline + half-width; open ground for the player only (traffic + the AI keep
+            the lattice — a link is the shortcut you learn).
+     parcels per-parcel render kind (`lay`) + drivability override. TYPES never change (the Valley stays one place;
+            the named businesses stay put) — only what stands on a few blocks.
+     studio BURBANK: the studio lot is the first twitchy zone.
+   `?grid=1` = the plain grid on every level (Joe's A/B until he signs off). Levels without an entry are untouched
+   (byte-identical: no cuts, no links, no rng change). Balance re-baselined on purpose for the levels below. */
+const LAYOUTS={
+  'ENCINO':{ tag:'SEPULVEDA HILLS',
+    cuts:[ {axis:'v',gi:2,bk:4},                                   // a T: the south block runs through (Ventura's side streets don't all go)
+           {axis:'h',gi:4,bk:0,from:'e',keep:72} ],                 // a cul-de-sac off the hills
+    links:[ {pts:[[240,0],[300,52],[372,118],[428,178],[480,240]], hw:22, name:'BALBOA CUT-OFF'},            // a diagonal off the 101
+            {pts:[[724,1036],[790,1050],[838,1086],[862,1134],[868,1204]], hw:20, name:'HAYVENHURST DR'} ], // a hillside curve
+    parcels:{ '1,0':{lay:'diag',drivable:false}, '3,4':{lay:'diag',drivable:false},
+              '4,1':{lay:'basin'}, '4,2':{lay:'basin'}, '4,3':{lay:'basin'} } },   // the Sepulveda Basin: rec fields (still open ground)
+  'BURBANK':{ tag:'RIVERSIDE + THE LOT',
+    cuts:[ {axis:'v',gi:3,bk:4},                                   // the studio lot swallows a street
+           {axis:'h',gi:2,bk:0},                                   // the HQ forecourt (a T on the west edge)
+           {axis:'v',gi:1,bk:0,from:'s',keep:72} ],                 // a dead-end street up toward the 101 sound wall
+    links:[ {pts:[[1040,236],[1035,320],[1032,400],[1034,480],[1042,540],[1066,592],[1110,626],[1160,640],[1206,644]], hw:22, name:'RIVERSIDE DR'} ],
+    parcels:{ '4,1':{lay:'ind',drivable:false}, '4,2':{lay:'ind',drivable:false}, '4,3':{lay:'ind',drivable:false},
+              '2,4':{lay:'studio',drivable:false}, '3,4':{lay:'studio',drivable:false} },
+    studio:{x:720,y:1080,name:'ZERN BROS. STUDIOS'} },
+};
+const GRID1=(function(){ try{ return /[?&]grid=1\b/.test(location.search||''); }catch(e){ return false; } })();
+function layoutFor(L){ return (GRID1||G._grid1) ? null : (LAYOUTS[L.name]||null); }
+function cutBand(c){ const s=c.bk*CELL+ROADH, e=(c.bk+1)*CELL-ROADH; let a=s, b=e;
+  if(c.from==='n'||c.from==='w') a=s+(c.keep||0); else if(c.from==='s'||c.from==='e') b=e-(c.keep||0);
+  return {axis:c.axis, gi:c.gi, bk:c.bk, a, b, stub:!!c.from, from:c.from||null}; }
+function cutAt(x,y){ const cs=G.cuts; if(!cs||!cs.length) return false;
+  for(const c of cs){ if(c.axis==='v'){ if(Math.abs(x-c.gi*CELL)<=ROADH && y>=c.a && y<=c.b) return true; }
+    else if(Math.abs(y-c.gi*CELL)<=ROADH && x>=c.a && x<=c.b) return true; }
+  return false; }
+function cutEdge(axis,gi,bk){ const cs=G.cuts; if(!cs) return false;
+  for(const c of cs) if(c.axis===axis&&c.gi===gi&&c.bk===bk) return true; return false; }
+function linkAt(x,y){ const R=G.roads; if(!R||!R.links) return false;
+  for(const k of R.links){ const P=k.pts; for(let i=0;i+1<P.length;i++) if(segD(x,y,P[i][0],P[i][1],P[i+1][0],P[i+1][1])<=k.hw) return true; }
+  return false; }
 
 /* ---------- state ---------- */
 /* ---------- TUNE — the driving-feel SSOT (E4) ----------
@@ -582,6 +629,7 @@ if(typeof window!=='undefined' && window.addEventListener){           // re-fit 
 
 const G={
   mode:'boot', li:0, level:null, t:0,
+  roads:null, cuts:[],                                              // STREET LAYOUTS (1117r3): this level's T's / dead ends / links
   park:null, walkers:[], handoffs:0, parkGrace:0,                 // THE HAND-OFF: the parking brake + who's walking (deterministic sim state)
   credits:0, stars:[], stuntPath:'none', stuntCard:false, lives:3, oneUps:2, gameover:false,
   // per level
@@ -1001,7 +1049,10 @@ function tryImg(k,src){const i=new Image();i.onload=()=>IMG[k]=i;i.src=src;}
  // clockwise) × 8 walk frames (cols), 64 px frames, feet at (32,56), 16 world units tall per frame. The hand-off walkers
  // (runner = the restaurant kid with the bag · rider · customer · crew) + three sidewalk peds. Missing = procedural figure.
  'people/runner','people/rider','people/customer','people/crew','people/ped0','people/ped1','people/ped2',
-].forEach(p=>tryImg(p,'assets/'+p+'.png'));
+].filter(p=>p.indexOf('people/')!==0||PEOPLE3D()).forEach(p=>tryImg(p,'assets/'+p+'.png'));
+// 1118 PEOPLE RULE (Joe: people stay 2D — no code-built / BlenderKit 3D humans by default): the 3D walk sheets above are OPT-IN
+// (?people=3d). Default = the 2D silhouette figures drawPerson()/drawPeds() fall back to (a painted cutout set replaces them when made).
+function PEOPLE3D(){ try{ return /[?&]people=3d\b/.test(location.search); }catch(e){ return false; } }
 const APT_SPRITES=['buildings/apt0','buildings/apt1','buildings/apt2','buildings/apt3','buildings/apt4'];
 // the SHOP POOL for GENERIC strip/plaza parcels — anonymous Valley storefronts. Selection mixes the mission
 // index so the shops you pass change every mission (render-only). The NAMED Anders places (Patty Melt / Penalty
@@ -1103,12 +1154,14 @@ function loadLevel(){
   // the seeded rng at load (no mid-drive rng -> determinism + a reproducible balance harness),
   // mid-block (never an intersection, so turns stay open) and offset to ONE side (the opposite
   // lane is always clear — "pick your spot"). Contact = a wreck, never a kill (level 2 is fair).
+  if(G.cuts&&G.cuts.length) clearTrafficFromClosures(cutAt);              // STREET LAYOUTS: no car starts inside a built-over block
   G.parked=[];
   if(L.parked){ const kinds=['sedan','suv','minivan','van','pickup'], seen={}; let tries=0;
     while(G.parked.length<TUNE.parkedN && tries++<TUNE.parkedN*6){
       const vert=rng()<0.5, gi=1+(rng()<0.5?0:1), bk=Math.floor(rng()*(GRIDN-1)), side=rng()<0.5?-1:1,
             kind=kinds[Math.floor(rng()*kinds.length)], key=(vert?'v':'h')+gi+'-'+bk+'-'+side;
       if(seen[key]) continue; seen[key]=1;
+      if(G.cuts&&G.cuts.length && cutEdge(vert?'v':'h',gi,bk)) continue;    // STREET LAYOUTS: never double-park on a built-over street
       const line=gi*CELL, along=(bk+0.5)*CELL, off=side*TUNE.parkOff;
       if(vert) G.parked.push({x:line+off, y:along,    ang:side*0.16,             kind, seed:line+side, hitCd:0, nearCd:0});
       else     G.parked.push({x:along,    y:line+off, ang:Math.PI/2+side*0.16,   kind, seed:line+side, hitCd:0, nearCd:0});
@@ -1168,6 +1221,8 @@ function loadLevel(){
   // driving inside a studio zone spikes heat. Zones are picked from the fixed Valley parcels (shuffled by the
   // seeded rng, spread out) — pure heat, never a kill; you ease off / LAY LOW past them and gun it elsewhere.
   G.studios=[];
+  if(L.studioHeat && G.roads && G.roads.studio){ const st=G.roads.studio;   // STREET LAYOUTS (Burbank): the studio lot is the first twitchy zone
+    G.studios.push({x:st.x,y:st.y,lot:true,name:st.name}); }
   if(L.studioHeat){
     const elig=G.parcels.filter(p=>(p.type==='plaza'||p.type==='strip')&&!p.drivable);
     for(let i=elig.length-1; i>0; i--){ const j=Math.floor(rng()*(i+1)); const t=elig[i]; elig[i]=elig[j]; elig[j]=t; }   // seeded shuffle
@@ -1424,6 +1479,10 @@ function buildParcels(L,rng){
   // CITY LAB parcel overrides (gated ?cityparcels — changes drivability + the world FP; re-baseline balance)
   if(G._cityParcels && G.city && G.city.parcels){ for(const p of flat){ const o=G.city.parcels[p.bx+','+p.by];
     if(o){ p.type=o; p.drivable=!!DRIVABLE_LOT[o]; } } }
+  // STREET LAYOUTS (1117r3): this level's irregular streets — no rng, so the seeded build is untouched
+  G.roads=layoutFor(L); G.cuts=G.roads?(G.roads.cuts||[]).map(cutBand):[];
+  if(G.roads&&G.roads.parcels) for(const p of flat){ const o=G.roads.parcels[p.bx+','+p.by];
+    if(o){ p.lay=o.lay; if(o.drivable!=null) p.drivable=o.drivable; } }
 }
 function pickType(r,table){ let tot=0; for(const t of table)tot+=t[1]; let x=r*tot;
   for(const t of table){ x-=t[1]; if(x<=0) return t[0]; } return table[table.length-1][0]; }
@@ -1487,11 +1546,13 @@ function closedAt(x,y){
 // 0716 note knowingly allowed it ("a car spawned inside drives OUT"). Traffic is built before the closures
 // are placed, so this runs after placement and walks any offender clear along its own lane.
 // Deterministic: no rng draws, a fixed step, a hard bound.
-function clearTrafficFromClosures(){
-  if(!(G.closures&&G.closures.length)||!G.traffic) return;
+function clearTrafficFromClosures(at){
+  at=at||closedAt;
+  if(at===closedAt && !(G.closures&&G.closures.length)) return;
+  if(!G.traffic) return;
   for(const c of G.traffic){
     for(let guard=0; guard<400; guard++){
-      if(!closedAt(c.vert?c.line:c.pos, c.vert?c.pos:c.line)) break;
+      if(!at(c.vert?c.line:c.pos, c.vert?c.pos:c.line)) break;
       c.pos += c.dir*8;
       if(c.pos>WMAX+40) c.pos=-40; else if(c.pos<-40) c.pos=WMAX+40;
     }
@@ -1505,13 +1566,29 @@ function onRoad(x,y,ignoreClosed){
     const ch=G.channel;
     if(ch && ch.axis==='v' && nearestLine(x)===ch.x && nearV && !nearH) return false;
     if(!ignoreClosed && closedAt(x,y)) return false;   // VALLEY VILLAGE: a barricaded segment is a soft wall (reroute) — but the GALLOP horn-jumps it (ignoreClosed)
+    if(G.cuts&&G.cuts.length && cutAt(x,y)) return false;        // STREET LAYOUTS: a built-over segment is buildings (the gallop can't jump it)
     return true;
   }
+  if(G.roads && linkAt(x,y)) return true;              // STREET LAYOUTS: the river road / diagonal / hillside curve
   // open ground: parking lots & parks are drivable interior (route choice, not a Manhattan cage)
   const p=parcelAt(x,y);
   return !!(p && p.drivable);
 }
 function carAng(vx,vy){ return Math.atan2(vx,-vy); }
+// STREET LAYOUTS: next hop over the lattice graph (the channel column, closures + built-over segments removed) —
+// the demo driver's route memory (the balance harness has its own copy, tools/balance.js planHop). No rng.
+function routeHop(c,T){
+  const cg=G.channel?G.channel.g:-1, cl=v=>Math.max(0,Math.min(GRIDN-1,Math.round(v/CELL)));
+  const blocked=(i,j,ni,nj)=>{ if(i===ni&&i===cg) return true;
+    for(const k of (G.closures||[]).concat(G.cuts||[])){
+      if(k.axis==='v'&&i===ni&&i===k.gi&&Math.min(j,nj)===k.bk) return true;
+      if(k.axis==='h'&&j===nj&&j===k.gi&&Math.min(i,ni)===k.bk) return true; } return false; };
+  const si=cl(c.x), sj=cl(c.y), ti=cl(T.x), tj=cl(T.y); if(si===ti&&sj===tj) return {x:T.x,y:T.y};
+  const K=(i,j)=>i+','+j, st=K(si,sj), par={}, seen=new Set([st]), q=[[si,sj]];
+  while(q.length){ const [i,j]=q.shift(); for(const d of [[1,0],[-1,0],[0,1],[0,-1]]){ const ni=i+d[0], nj=j+d[1];
+    if(ni<0||nj<0||ni>=GRIDN||nj>=GRIDN||blocked(i,j,ni,nj)) continue; const k=K(ni,nj); if(!seen.has(k)){ seen.add(k); par[k]=K(i,j); q.push([ni,nj]); } } }
+  let k=K(ti,tj); if(!seen.has(k)) return {x:T.x,y:T.y}; while(par[k]&&par[k]!==st) k=par[k];
+  const [hi,hj]=k.split(',').map(Number); return (hi===ti&&hj===tj)?{x:T.x,y:T.y}:{x:hi*CELL,y:hj*CELL}; }
 
 /* ============================================================
    UPDATE
@@ -1619,6 +1696,10 @@ function updateDrive(dt){
     if(G.closures&&G.closures.length){
       const cx=c.vert?c.line:c.pos, cy=c.vert?c.pos:c.line, nx2=c.vert?c.line:np, ny2=c.vert?np:c.line;
       if(!closedAt(cx,cy) && closedAt(nx2,ny2)){ c.dir*=-1; np=c.pos; }
+    }
+    if(G.cuts&&G.cuts.length){                                        // STREET LAYOUTS: a dead end / T turns the lane around too
+      const cx=c.vert?c.line:c.pos, cy=c.vert?c.pos:c.line, nx2=c.vert?c.line:np, ny2=c.vert?np:c.line;
+      if(!cutAt(cx,cy) && cutAt(nx2,ny2)){ c.dir*=-1; np=c.pos; }
     }
     if(G.park||G.parkGrace>0){ const hx=c.vert?c.line:np, hy=c.vert?np:c.line;   // THE HAND-OFF: traffic waits behind a parked Zebra (+ lets you pull out)
       if(Math.hypot(hx-car.x,hy-car.y)<40 && Math.hypot(hx-car.x,hy-car.y)<Math.hypot((c.vert?c.line:c.pos)-car.x,(c.vert?c.pos:c.line)-car.y)) np=c.pos;
@@ -3058,6 +3139,7 @@ function drawParcels(L){
     if(sx+w<0||sy+h<0||sx>W||sy>H) continue;
     // DTLA: plaza/strip/apartment parcels read as TOWERS, not Valley strip-malls (BONUS_THE_COURTESY.md §7)
     if(downtown && (p.type==='plaza'||p.type==='strip'||p.type==='apartments')){ drawTower(p,sx,sy,w,h,L); continue; }
+    if(p.lay){ drawLayParcel(p,sx,sy,w,h,L); continue; }          // STREET LAYOUTS: the river warehouses / the studio lot / hillside homes / the basin
     switch(p.type){
       case 'empty':      bldgBlock(sx,sy,w,h,L.night?'#3a3024':'#7a6747',p.v,L.night,false,SCALE.mojaveBlock); break; // mojave bare block (low)
       case 'park':       drawPark(p,sx,sy,w,h,L); break;
@@ -3068,6 +3150,53 @@ function drawParcels(L){
       default:           drawStrip(p,sx,sy,w,h,L); break;     // 'strip'
     }
   }
+  if(G.roads) drawLayoutRoads(L);
+}
+/* ---------- STREET LAYOUTS — the 2D read (the 3D page draws the Blender plates instead) ---------- */
+function drawLayParcel(p,sx,sy,w,h,L){ const z=cam.z, night=L.night;
+  if(p.lay==='basin'){ drawPark(p,sx,sy,w,h,L);                                      // Sepulveda Basin rec fields: ball diamonds on the turf
+    ctx.strokeStyle=night?'rgba(200,190,160,.25)':'rgba(236,226,196,.6)'; ctx.lineWidth=Math.max(1,1.4*z);
+    const cx=sx+w*0.5, cy=sy+h*0.62, r=w*0.22; ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(cx-r,cy-r); ctx.lineTo(cx,cy-2*r); ctx.lineTo(cx+r,cy-r); ctx.closePath(); ctx.stroke(); return; }
+  const studio=p.lay==='studio', ind=p.lay==='ind';
+  ctx.fillStyle = studio ? (night?'#1a1c20':'#9a958a') : ind ? (night?'#15171b':'#7c7a74') : (night?'#14180f':'#4a5a3c');   // lot paving / yard / lawn
+  ctx.fillRect(sx,sy,w,h);
+  const N = studio?2:(ind?2:3), m=6*z, cw=(w-m*(N+1))/N, ch=(h-m*(N+1))/N; let k=0;
+  for(let r=0;r<N;r++) for(let c=0;c<N;c++){ k++;
+    const x0=p.x0+(m/z)+c*(cw+m)/z, y0=p.y0+(m/z)+r*(ch+m)/z, x1=x0+cw/z, y1=y0+ch/z, pad=10;
+    let hit=false; for(const [u,v] of [[x0,y0],[x1,y0],[x0,y1],[x1,y1],[(x0+x1)/2,(y0+y1)/2],[(x0+x1)/2,y0],[(x0+x1)/2,y1],[x0,(y0+y1)/2],[x1,(y0+y1)/2]])
+      if(G.roads.links.some(lk=>{ for(let i=0;i+1<lk.pts.length;i++) if(segD(u,v,lk.pts[i][0],lk.pts[i][1],lk.pts[i+1][0],lk.pts[i+1][1])<=lk.hw+pad) return true; return false; })) hit=true;
+    if(hit) continue;
+    const [bx,by]=W2S(x0,y0), lit=((p.v*97+k*31)%10)<5;
+    if(studio){ bldgBlock(bx,by,cw,ch, night?'#3a352c':'#d8ccb0', p.v+k, night, false, SCALE.plaza+6);                // a SOUND STAGE
+      if(z>0.7){ ctx.save(); ctx.fillStyle=night?'rgba(240,230,200,.45)':'rgba(70,60,45,.75)'; ctx.font='800 '+Math.max(8,(20*z)|0)+'px system-ui,sans-serif';
+        ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText(String(((p.bx*2+k)*3)%19+2), bx+cw/2, by+ch/2); ctx.restore(); } }
+    else if(ind) bldgBlock(bx,by,cw,ch*0.86, night?'#2a2c30':'#b9b6ad', p.v+k, night, lit, SCALE.strip);              // a warehouse (loading dock apron below)
+    else bldgBlock(bx+cw*0.1,by+ch*0.12,cw*0.8,ch*0.7, night?(lit?'#2a241b':'#171410'):'#'+['b9b0a0','c7bcaa','a89e8c'][k%3], p.v+k, night, lit, SCALE.bungalow);
+  }
+}
+function drawLayoutRoads(L){ const z=cam.z, night=L.night, R=G.roads;
+  // built-over segments: the block runs through (plaza paving + planters); a cul-de-sac stub gets its rounded end
+  for(const c of G.cuts){ const line=c.gi*CELL;
+    const [x0,y0]=c.axis==='v'?[line-ROADH-2,c.a]:[c.a,line-ROADH-2], [x1,y1]=c.axis==='v'?[line+ROADH+2,c.b]:[c.b,line+ROADH+2];
+    const [s0x,s0y]=W2S(x0,y0), [s1x,s1y]=W2S(x1,y1);
+    const studio=R.studio && Math.hypot((x0+x1)/2-R.studio.x,(y0+y1)/2-R.studio.y)<CELL;
+    ctx.fillStyle=studio?(night?'#1a1c20':'#9a958a'):(night?'#23262b':'#b3ada2'); ctx.fillRect(s0x,s0y,s1x-s0x,s1y-s0y);
+    ctx.strokeStyle=night?'rgba(0,0,0,.4)':'rgba(70,64,56,.45)'; ctx.lineWidth=Math.max(1,1.6*z); ctx.strokeRect(s0x,s0y,s1x-s0x,s1y-s0y);
+    if(!studio) for(let t=0.2;t<0.95;t+=0.3){ const [px,py]=c.axis==='v'?W2S(line,c.a+(c.b-c.a)*t):W2S(c.a+(c.b-c.a)*t,line);
+      ctx.fillStyle=night?'#16432a':'#3f7a44'; ctx.beginPath(); ctx.arc(px,py,Math.max(2,9*z),0,7); ctx.fill(); }
+    if(c.stub){ const e=(c.from==='n'||c.from==='w')?c.a:c.b, [ex,ey]=c.axis==='v'?W2S(line,e):W2S(e,line), dir=(c.from==='n'||c.from==='w')?-1:1;
+      ctx.fillStyle=night?'#1c2128':'#3d4146'; ctx.beginPath();
+      if(c.axis==='v') ctx.ellipse(ex,ey,ROADH*z,ROADH*0.55*z,0,dir<0?Math.PI:0,dir<0?2*Math.PI:Math.PI); else ctx.ellipse(ex,ey,ROADH*0.55*z,ROADH*z,0,dir<0?Math.PI/2:-Math.PI/2,dir<0?1.5*Math.PI:Math.PI/2);
+      ctx.fill(); }
+  }
+  // the links: sidewalk ribbon, asphalt, a broken centre line
+  for(const k of (R.links||[])){ const P=k.pts.map(q=>W2S(q[0],q[1]));
+    const path=()=>{ ctx.beginPath(); ctx.moveTo(P[0][0],P[0][1]); for(let i=1;i<P.length;i++) ctx.lineTo(P[i][0],P[i][1]); };
+    ctx.save(); ctx.lineJoin='round'; ctx.lineCap='butt';
+    path(); ctx.strokeStyle=night?'#2a2d33':'#bdb7aa'; ctx.lineWidth=(k.hw+9)*2*z; ctx.stroke();
+    path(); ctx.strokeStyle=night?'#1c2128':'#3d4146'; ctx.lineWidth=k.hw*2*z; ctx.stroke();
+    path(); ctx.setLineDash([10*z,12*z]); ctx.strokeStyle='rgba(216,181,58,.7)'; ctx.lineWidth=Math.max(1,1.5*z); ctx.stroke(); ctx.setLineDash([]);
+    ctx.restore(); }
 }
 // shade a #hex color by factor f (f<1 darker for box side-walls, f>1 lighter for parapet/roof highlights);
 // passes rgba()/non-hex through. Clamped to [0,255].
@@ -3904,6 +4033,10 @@ function drawMiniMap(x,y,w,h){
   // VALLEY FOUNDATION landmarks — green park, the 101, the flood-channel scar
   if(G.parcels) for(const p of G.parcels){ if(p.type==='park'){ ctx.fillStyle='rgba(63,138,74,.85)'; ctx.fillRect(mx(p.x0),my(p.y0),p.w*s,p.h*s); }
     else if(p.type==='lot'){ ctx.fillStyle='rgba(150,150,160,.30)'; ctx.fillRect(mx(p.x0),my(p.y0),p.w*s,p.h*s); } }
+  if(G.roads){ ctx.fillStyle='rgba(4,16,8,1)';                    // STREET LAYOUTS: the built-over segments go dark, the links draw in
+    for(const c of G.cuts){ const l=c.gi*CELL; if(c.axis==='v') ctx.fillRect(mx(l)-2,my(c.a),4,(c.b-c.a)*s); else ctx.fillRect(mx(c.a),my(l)-2,(c.b-c.a)*s,4); }
+    ctx.strokeStyle='rgba(57,217,138,.55)'; ctx.lineWidth=1.4;
+    for(const k of (G.roads.links||[])){ ctx.beginPath(); k.pts.forEach((q,i)=>i?ctx.lineTo(mx(q[0]),my(q[1])):ctx.moveTo(mx(q[0]),my(q[1]))); ctx.stroke(); } }
   if(G.freeway){ ctx.strokeStyle='rgba(202,165,58,.85)'; ctx.lineWidth=3;
     ctx.beginPath();ctx.moveTo(mx(0),my(G.freeway.y));ctx.lineTo(mx(WMAX),my(G.freeway.y));ctx.stroke(); }
   if(G.channel){ ctx.strokeStyle='rgba(120,175,185,.9)'; ctx.lineWidth=2; ctx.setLineDash([3,2]);
@@ -4272,6 +4405,8 @@ function attractAI(){
   let aim;
   if(onChan){ if(Math.abs(c.y-T.y)>26){ let col=Math.round(c.x/CELL)*CELL; if(Math.abs(col-chX)<1) col=chX-CELL; aim={x:col,y:T.y}; } else aim={x:T.x,y:T.y}; }
   else { if(Math.abs(c.x-T.x)>26) aim={x:T.x,y:Math.round(c.y/CELL)*CELL}; else aim={x:T.x,y:T.y}; }
+  if(G.cuts&&G.cuts.length){ const Hh=routeHop(c,T);              // STREET LAYOUTS: the demo driver knows the T's + dead ends too
+    aim = Math.abs(c.x-Hh.x)>26 ? {x:Hh.x,y:Math.round(c.y/CELL)*CELL} : {x:Hh.x,y:Hh.y}; }
   let want=Math.atan2(aim.x-c.x,-(aim.y-c.y)); const remain=Math.hypot(aim.x-c.x,aim.y-c.y);
   let d=want-c.ang; while(d>Math.PI)d-=2*Math.PI; while(d<-Math.PI)d+=2*Math.PI;
   keys.left=d<-0.05; keys.right=d>0.05;
@@ -5167,6 +5302,40 @@ function selfTest(){
     }
   }catch(e){ rcOK=false; rcErr=String((e&&e.message)||e); }
   ok('every level is ONE connected road network with every fare on it', rcOK, rcErr);
+  // STREET LAYOUTS (1117r3) — the irregular streets are real walls/roads, the gallop can't jump a built-over block,
+  // intersections stay open, links drive through walled parcels, nothing spawns inside, ?grid=1 restores the plain grid
+  let layOK=true, layErr='';
+  try{
+    let n=0;
+    for(let li=0; li<LEVELS.length; li++){ const L2=LEVELS[li]; if(!LAYOUTS[L2.name]) continue; n++;
+      startRun(); G.li=li; loadLevel(); const nm=L2.name;
+      if(!G.roads||!G.cuts.length) throw new Error(nm+': layout not applied');
+      for(const c of G.cuts){ const line=c.gi*CELL, mid=(c.a+c.b)/2;
+        const [mx,my]=c.axis==='v'?[line,mid]:[mid,line];
+        if(onRoad(mx,my)!==false || onRoad(mx,my,true)!==false) throw new Error(nm+': a built-over segment is drivable (or gallop-jumpable)');
+        for(const e of [c.bk*CELL,(c.bk+1)*CELL]){ const [ex,ey]=c.axis==='v'?[line,e]:[e,line]; if(onRoad(ex,ey)!==true) throw new Error(nm+': a cut sealed an intersection'); }
+        if(c.stub){ const k=(c.from==='n'||c.from==='w')?c.a-20:c.b+20, [sx,sy]=c.axis==='v'?[line,k]:[k,line];
+          if(onRoad(sx,sy)!==true) throw new Error(nm+': the cul-de-sac stub is not drivable'); } }
+      for(const k of (G.roads.links||[])){ for(let i=0;i+1<k.pts.length;i++){ const x=(k.pts[i][0]+k.pts[i+1][0])/2, y=(k.pts[i][1]+k.pts[i+1][1])/2;
+        if(onRoad(x,y)!==true) throw new Error(nm+': '+k.name+' is not drivable at '+Math.round(x)+','+Math.round(y)); } }
+      for(const p of G.parcels) if(p.lay && !p.drivable){ let any=false;   // a link parcel stays SOLID off the road band
+        for(let u=0.15;u<0.9;u+=0.1) for(let v=0.15;v<0.9;v+=0.1){ const x=p.x0+p.w*u, y=p.y0+p.h*v; if(!linkAt(x,y)&&onRoad(x,y)) any=true; }
+        if(any) throw new Error(nm+': walled layout parcel '+p.bx+','+p.by+' is drivable off its road'); }
+      for(const c of G.traffic) if(cutAt(c.vert?c.line:c.pos, c.vert?c.pos:c.line)) throw new Error(nm+': traffic spawned inside a built-over block');
+      for(const pk of (G.parked||[])) if(cutAt(pk.x,pk.y)) throw new Error(nm+': a double-parked car sits on a built-over street');
+      if(L2.studioHeat && G.roads.studio && !(G.studios[0]&&G.studios[0].lot)) throw new Error(nm+': the studio lot is not the first studio zone');
+      // ?grid=1 — the plain grid back (the A/B Joe signs off on): no cuts, no links, no lay parcels, the seeded build identical
+      const fpLay=G.parcels.map(p=>p.type[0]).join('')+G.rng().toFixed(6);
+      G._grid1=true; startRun(); G.li=li; loadLevel(); const fpGrid=G.parcels.map(p=>p.type[0]).join('')+G.rng().toFixed(6), clean=!G.roads&&!G.cuts.length&&!G.parcels.some(p=>p.lay);
+      G._grid1=false;
+      if(!clean) throw new Error(nm+': ?grid=1 did not restore the plain grid');
+      if(nm!=='ENCINO' && fpLay!==fpGrid) throw new Error(nm+': the layout changed the seeded world build');   // (Encino's parked-car filter may skip a draw-set; its rng stream is still identical up to it)
+    }
+    if(n<2) throw new Error('expected >=2 layout levels, got '+n);
+    for(let li=0; li<LEVELS.length; li++){ if(LAYOUTS[LEVELS[li].name]) continue; startRun(); G.li=li; loadLevel();
+      if(G.roads||G.cuts.length||G.parcels.some(p=>p.lay)) throw new Error(LEVELS[li].name+' picked up a layout it does not have'); }
+  }catch(e){ layOK=false; layErr=String((e&&e.message)||e); G._grid1=false; }
+  ok('STREET LAYOUTS: T\'s / dead ends are walls (no gallop), links drive through walled blocks, nothing spawns inside, ?grid=1 = the plain grid', layOK, layErr);
   // THE 101 ON-RAMP MUST MEET A STREET. It was drawn at WMAX*0.52 — a raw fraction, which lands
   // mid-block on the 240-unit grid, so the ramp had no road touching it ("the 101 on ramps are not
   // near streets for access"). Assert the base sits on a drivable north-south road, on every level
@@ -5588,6 +5757,10 @@ function setupScene(name){   // dev QA seek — jump straight to a screen for sc
     case 'drive-studio': { const fi=LEVELS.findIndex(l=>l.studioHeat); go(fi,'drive'); const s=G.studios[0];   // BURBANK: reckless inside a twitchy studio zone (the ring flares red)
       let pt=null; for(const [x,y] of [[nearestLine(s.x),s.y],[s.x,nearestLine(s.y)]]) if(onRoad(x,y)){ pt={x,y}; break; }
       G.car.x=(pt||s).x; G.car.y=(pt||s).y; G.car.ang=0; G.car.spd=G.level.topMph*0.9; keys.laylow=false; for(let i=0;i<30;i++)updateDrive(1/60); updateCam(); } break;
+    case 'drive-riverside': go(4,'drive'); G.car.x=1034; G.car.y=430; G.car.ang=Math.PI; G.car.spd=40; updateCam(); break;          // STREET LAYOUTS (BURBANK): Riverside Dr bending along the wash (QA)
+    case 'drive-lot': go(4,'drive'); G.car.x=720; G.car.y=900; G.car.ang=Math.PI; G.car.spd=30; updateCam(); break;                   // …the studio lot swallowing the street (a T) (QA)
+    case 'drive-hills': go(1,'drive'); G.car.x=790; G.car.y=1050; G.car.ang=carAng(0.8,0.6); G.car.spd=36; updateCam(); break;     // STREET LAYOUTS (ENCINO): the hillside curve + the cul-de-sac (QA)
+    case 'drive-diag': go(1,'drive'); G.car.x=372; G.car.y=118; G.car.ang=carAng(1,1); G.car.spd=40; updateCam(); break;           // …the diagonal cut-off off the 101 (QA)
     case 'drive-vip': { const ai=LEVELS.findIndex(l=>l.vipFare); go(ai,'drive'); const vi=G.fares.findIndex(f=>f.vip);   // THE AIRPORT RIDE: the VIP fare pin (gold ★)
       const f=G.fares[vi]; G.fareIdx=vi; G.car.x=f.pickup.x; G.car.y=f.pickup.y+CELL*0.5; G.car.ang=0; G.car.spd=G.level.topMph*0.4; updateCam(); } break;
     case 'drive-queen': { const qi=LEVELS.findIndex(l=>l.queen&&!l.bonus); go(qi,'drive'); const f=G.fares[0];   // VENTURA: idling at the drop, the beam SHUT (wait for the window)
