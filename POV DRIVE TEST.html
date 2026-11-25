@@ -583,5 +583,80 @@ requestAnimationFrame(frame);
   (function tick(){ requestAnimationFrame(tick); try{ ex.style.display=(touch&&exitOpen())?'block':'none'; if(exitOpen()) ex.textContent='EXIT ▶ '+nextExit().name; }catch(_){} })();
 })();
 </script>
+<script>
+/* THE 101 · HYSCORE CAB MODE (PC 1124, Order 34) — OPT-IN: ?cab=101 only. Without it this block returns at once and
+   nothing above changes. ATTRACT (the demo drives itself) -> START -> a timed run (miles + exits made − time off road)
+   -> the score card -> ATTRACT. Exits score instead of leaving (a cab never hands off). No menus, no quit, saves nothing.
+   START = Enter / Space / 5 (coin) / a tap. Steer ← →, gas ↑, brake ↓, take a ramp: hold → onto it or E. ?secs=30..300. */
+(function(){
+  var q=new URLSearchParams(location.search); if(q.get('cab')!=='101') return;
+  var s=document.createElement('script'); s.src='lib/cab101.js'; s.onload=boot; document.head.appendChild(s);
+  function boot(){
+    var CB=window.CAB101; if(!CB) return;
+    var st=CB.create({runSecs:+q.get('secs')||0}); window.__cab101=st;   // read-only probe for tools/cab101_test.js
+    S.freeway=true; S.traffic=false; S.zi=Math.max(0,ZONES.findIndex(function(z){return z.key==='haul';})); S.view='chase';
+    ['hud','tag'].forEach(function(id){ var e=document.getElementById(id); if(e) e.classList.add('hide'); });
+    var startQ=false, flash=0, flashTxt='', CAB_T0=EXIT_OPEN+2;
+    // a cab has no dev keys: swallow the sandbox's V/N/Z/1/T/H/R (they'd toggle THE 101 off, change zone, reset) before they land
+    var BLOCK={v:1,n:1,z:1,'1':1,t:1,h:1,r:1,escape:1};
+    addEventListener('keydown',function(e){ var k=e.key.toLowerCase();
+      if(k==='enter'||k===' '||k==='5'){ e.preventDefault(); startQ=true; if(st.phase!=='play'){ e.stopImmediatePropagation(); return; } }
+      if(BLOCK[k]){ e.preventDefault(); e.stopImmediatePropagation(); }
+    }, true);
+    document.getElementById('c').addEventListener('pointerdown',function(){ if(st.phase!=='play') startQ=true; });
+    // exits SCORE in the cab (once per window) and the car eases back to its lane under a short wipe; never a hand-off
+    takeExit=function(){ var win=Math.floor(S.t/EXIT_EVERY);
+      if(CB.exitMade(st,win)){ flash=1.0; flashTxt='EXIT MADE · '+nextExit().name+'  +'+CB.EXIT_PTS; } };
+    draw101Banner=function(){};   // the cab draws its own top line (below)
+    var last=0;
+    function setKeys(o){ keys['arrowleft']=!!o.left; keys['arrowright']=!!o.right; keys['arrowup']=!!o.up; keys['arrowdown']=!!o.down; }
+    function loop(now){ requestAnimationFrame(loop);
+      var dt=Math.min(0.05,(now-(last||now))/1000); last=now;
+      var sim={spd:S.spd,TOP:TOP,curve:S.curve,lat:S.lat,steer:S.steer,miles:S.miles,offroadT:S.offroadT};
+      if(st.phase!=='play') setKeys(CB.autopilot(sim));          // attract + score card: the demo drives
+      var r=CB.tick(st,dt,sim,{start:startQ}); startQ=false;
+      if(r==='begin'){ reset(); S.t=CAB_T0; st.miles0=S.miles; S.night=(st.runs%2===0); setKeys({}); }   // first ramp ~16 s in
+      if(r==='end'){ setKeys({}); }
+      if(flash>0){ flash=Math.max(0,flash-dt*1.4); if(flash>0.5) S.lat=S.lat*0.9; }   // ease back into the lane under the wipe
+      drawCab();
+    }
+    requestAnimationFrame(loop);
+    function box(x,y,w,h,a){ ctx.fillStyle='rgba(6,8,12,'+a+')'; ctx.fillRect(x,y,w,h); }
+    function drawCab(){
+      ctx.save(); ctx.textAlign='center';
+      var cx=W/2;
+      if(st.phase==='play'){
+        box(cx-170,8,340,50,0.66);
+        ctx.font='800 22px system-ui'; ctx.fillStyle='#ffcf33'; ctx.fillText(String(st.score).padStart(6,'0'),cx-70,38);
+        ctx.font='800 22px system-ui'; ctx.fillStyle=CB.timeLeft(st)<10?'#ff6a6a':'#cfe0ff'; ctx.fillText(Math.ceil(CB.timeLeft(st))+'s',cx+90,38);
+        ctx.font='600 10px ui-monospace,monospace'; ctx.fillStyle='#8aa0bd';
+        ctx.fillText('SCORE',cx-70,52); ctx.fillText('TIME',cx+90,52);
+        if(exitOpen()){ var p=0.6+0.4*Math.sin(S.t*8); box(cx-180,H-66,360,40,0.85);
+          ctx.font='800 16px system-ui'; ctx.fillStyle='rgba(120,255,170,'+p+')'; ctx.fillText('▶ EXIT: '+nextExit().name+'  +'+CB.EXIT_PTS+'  — hold →',cx,H-40); }
+        if(S.offroadT>0){ ctx.font='800 14px system-ui'; ctx.fillStyle='#ff6a6a'; ctx.fillText('OFF THE ROAD  −'+CB.OFF_PEN+'/s',cx,92); }
+      } else if(st.phase==='attract'){
+        var blink=(Math.floor(st.t*2)%2)===0;
+        box(0,H*0.30,W,H*0.24,0.55);
+        ctx.font='800 13px ui-monospace,monospace'; ctx.fillStyle='#8aa0bd'; ctx.fillText('MERC ZEBRA PRESENTS',cx,H*0.30+30);
+        ctx.font='900 52px system-ui'; ctx.fillStyle='#ffcf33'; ctx.fillText('THE 101',cx,H*0.30+84);
+        ctx.font='800 16px system-ui'; ctx.fillStyle=blink?'#ffffff':'rgba(255,255,255,.25)'; ctx.fillText('PRESS START',cx,H*0.30+118);
+        if(st.best>0){ ctx.font='700 12px ui-monospace,monospace'; ctx.fillStyle='#cfe0ff'; ctx.fillText('BEST TONIGHT  '+st.best,cx,H*0.30+140); }
+      } else {
+        box(0,H*0.26,W,H*0.36,0.8);
+        ctx.font='800 13px ui-monospace,monospace'; ctx.fillStyle='#8aa0bd'; ctx.fillText('YOU GOT OFF THE 101',cx,H*0.26+34);
+        ctx.font='900 56px system-ui'; ctx.fillStyle='#ffcf33'; ctx.fillText(String(st.last),cx,H*0.26+96);
+        ctx.font='700 14px system-ui'; ctx.fillStyle='#cfe0ff';
+        ctx.fillText((S.miles-st.miles0).toFixed(1)+' MI  ·  '+st.exits+' EXIT'+(st.exits===1?'':'S')+'  ·  '+st.offT.toFixed(1)+'s OFF ROAD',cx,H*0.26+126);
+        if(st.newBest){ ctx.font='900 18px system-ui'; ctx.fillStyle='#2ee6a6'; ctx.fillText('BEST TONIGHT',cx,H*0.26+156); }
+      }
+      if(flash>0){ ctx.globalAlpha=Math.min(1,flash*1.6); box(0,H*0.42,W,56,0.8);
+        ctx.font='900 22px system-ui'; ctx.fillStyle='#2ee6a6'; ctx.fillText(flashTxt,cx,H*0.42+36); ctx.globalAlpha=1; }
+      ctx.fillStyle='rgba(150,160,180,.55)'; ctx.font='600 10px ui-monospace,monospace';
+      ctx.fillText('Created by Joseph Coleman, Claude, ChatGPT, and Blender · Castle Killscreen · Anders & Partners',cx,H-10);
+      ctx.restore(); ctx.textAlign='left';
+    }
+  }
+})();
+</script>
 </body>
 </html>
